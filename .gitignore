@@ -1,10 +1,10 @@
 .vscode/
-output/
+/output/
 tests/
 tests_support_files/
 diferencias.py
 diferencias/
-input/
+/input/
 docs/
 otros/
 ejemplos.py
@@ -15,6 +15,7 @@ version_check.py
 _comparison.txt
 version_output/
 main.py
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
