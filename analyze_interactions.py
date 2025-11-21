@@ -1359,7 +1359,7 @@ class AnalyzeInteractions:
 
         return data
 
-    def filter_by_chain(self, 
+    def filter_by_residue(self, 
         interaction_data: InteractionData, 
         chain: str = None, 
         subpocket_path: str = None, 
@@ -1367,7 +1367,7 @@ class AnalyzeInteractions:
         save: str = None
     ) -> InteractionData:
         """
-        Filters an interaction matrix based on a specified chain or subpockets.
+        Filters an interaction matrix based on a specified chain or subpockets (residues).
 
         This method processes an interaction matrix and removes rows or interaction elements 
         that do not match the provided chain or residues extracted from the given subpockets.
