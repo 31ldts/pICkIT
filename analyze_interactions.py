@@ -1327,7 +1327,12 @@ class AnalyzeInteractions:
                                     
                                     # Remove interactions not in the valid subunits
                                     for interaction in range(len(interactions)):
-                                        if len(interactions[interaction-subchanges].split('(')) > 1 and interactions[interaction - subchanges][1:-1] not in subunits:
+                                        raw = interactions[interaction - subchanges]
+                                        if "(" in raw and ")" in raw:
+                                            subunit = raw.partition("(")[2].rpartition(")")[0]
+                                        else:
+                                            subunit = None
+                                        if subunit not in subunits:
                                             changes += 1
                                             interactions.pop(interaction - subchanges)
                                             subchanges += 1
