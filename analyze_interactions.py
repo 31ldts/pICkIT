@@ -2,6 +2,9 @@ import csv
 import os
 from matplotlib import pyplot as plt
 from matplotlib.ticker import MaxNLocator
+from matplotlib.patches import Patch
+from matplotlib import colormaps
+import matplotlib.colors as mcolors
 import mplcursors
 import copy
 import re
@@ -285,35 +288,59 @@ class AnalyzeInteractions:
                          axis: str, 
                          type_count: bool) -> tuple[list[list[int]], list[str]]:
         """
-        Accumulates interaction counts for rows or columns and returns the stacked data.
+        Computes interaction-type counts for each element (residue or PDB entry),
+        either by rows or by columns depending on `axis`.
+
+        - If `axis='rows'`, each matrix row corresponds to an element.
+        - If `axis='columns'`, the matrix is transposed so that each original column
+          becomes an element, and interactions are accumulated per column instead of per row.
+
+        The function returns:
+            - A list of lists, where each sublist contains the counts of each 
+              interaction type for one element.
+            - A list of element labels (indices), aligned with the rows of the output matrix.
 
         Args:
-            matrix (list of lists): The matrix containing interaction data.
-            axis (str): Specifies whether to select rows ('rows') or columns ('columns').
-            type_count (bool): Whether to count types or instances.
+            matrix (list of lists): The interaction matrix.
+            axis (str): 'rows' to process residues; 'columns' to process complexes.
+            type_count (bool): 
+                - If True, counts *all occurrences* of each interaction type.
+                - If False, counts *presence/absence* of each interaction type per cell.
 
         Returns:
-            tuple: A tuple containing the stacked data and indices.
+            tuple[list[list[int]], list[str]]:
+                (interaction_counts, element_labels)
         """
         self._verify_dimensions(matrix=matrix)
+
+        # If we want columns, transpose so that rows become the elements to count
         if axis == 'columns':
             matrix = self.transpose_matrix(matrix)
 
-        reactives = {row: [0] * len(self.interaction_labels) for row in range(1, len(matrix))}
-        indices = [matrix[row][0].split('_')[0].strip() for row in range(1, len(matrix))]
+        # Number of elements (skip header row)
+        num_elements = len(matrix) - 1
+        num_types = len(self.interaction_labels)
 
+        # Initialize result structure
+        reactives = [[0] * num_types for _ in range(num_elements)]
+        indices = [
+            matrix[row][0].split('_')[0].strip()
+            for row in range(1, len(matrix))
+        ]
+
+        # Count interactions
         for row in range(1, len(matrix)):
-            for column in range(1, len(matrix[row])):
-                cell = matrix[row][column]
+            for col in range(1, len(matrix[row])):
+                cell = matrix[row][col]
                 interactions = self._get_interactions(cell)
-                for i in range(len(self.interaction_labels)):
-                    if type_count:
-                        reactives[row][i] += interactions[i]
-                    elif interactions[i] > 0:
-                        reactives[row][i] += 1
 
-        result_list = list(reactives.values())
-        return result_list, indices
+                for i in range(num_types):
+                    if type_count:
+                        reactives[row - 1][i] += interactions[i]
+                    elif interactions[i] > 0:
+                        reactives[row - 1][i] += 1
+                        
+        return reactives, indices
 
     def _plot_init(self, colors, matrix, axis, type_count):
         if colors is None:
@@ -1367,7 +1394,7 @@ class AnalyzeInteractions:
         save: str = None
     ) -> InteractionData:
         """
-        Filters an interaction matrix based on a specified chain or subpockets (residues).
+        Filters an interaction matrix based on a specified residue or subpockets.
 
         This method processes an interaction matrix and removes rows or interaction elements 
         that do not match the provided chain or residues extracted from the given subpockets.
@@ -1586,8 +1613,146 @@ class AnalyzeInteractions:
             variable_names=['interaction_data']
         )
         return {i + 1: interaction for i, interaction in enumerate(interaction_data.interactions)}
-    
-    def heatmap(self, interaction_data: InteractionData, title: str, mode: str, x_label: str = "", y_label: str = "", min_v: int = None, max_v: int = None, case: str = None, save: bool = False):
+
+
+    def _load_subsite_color_maps(self, csv_path: str, subsite_colors: list[str] = None):
+        """
+        Load subsite definitions from a CSV file and generate two color maps:
+
+        1) residue_color_map : maps "GLU 166" → "#RRGGBB"
+        2) subsite_color_map : maps "S1" → "#RRGGBB"
+
+        Rules:
+        - CSV format: Subsite, "GLU166, SER144<main>, VAL42<side>, ..."
+        - Removes <main> or <side>
+        - Converts "GLU166" → "GLU 166"
+        - If fewer than 2 subsites exist → return empty dicts
+        - If custom subsite_colors list is provided:
+            * If too short → colors repeat cyclically
+            * If too long → excess ignored
+        """
+        # --- 1. Read CSV into a dict: subsite → residues ---
+        csv_path = os.path.join(self.input_directory, csv_path)
+        subsite_to_residues = {}
+
+        try:
+            with open(csv_path, mode="r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if not row or len(row) < 2:
+                        continue
+
+                    subsite = row[0].strip()
+                    residues_raw = row[1].split(",")
+
+                    cleaned_res = []
+                    for item in residues_raw:
+                        res = item.strip()
+
+                        # Remove <main> or <side>
+                        if "<" in res:
+                            res = res.split("<")[0].strip()
+
+                        # Convert "GLU166" → "GLU 166"
+                        if len(res) > 3 and res[:3].isalpha() and res[3:].isdigit():
+                            res = res[:3] + " " + res[3:]
+
+                        cleaned_res.append(res)
+
+                    subsite_to_residues[subsite] = cleaned_res
+
+        except Exception as e:
+            print("[WARNING] Failed to load subsite CSV:", e)
+            return {}, {}
+
+        # --- 2. Fewer than 2 subsites → no coloring ---
+        if len(subsite_to_residues) < 2:
+            return {}, {}
+
+        # --- 3. Assign colors to subsites ---
+        n_subsites = len(subsite_to_residues)
+
+        if subsite_colors is None:
+            cmap = colormaps.get_cmap("Dark2").resampled(n_subsites)
+            final_colors = [mcolors.to_hex(cmap(i)) for i in range(n_subsites)]
+        elif isinstance(subsite_colors, str):
+            try:
+                cmap = colormaps.get_cmap(subsite_colors).resampled(n_subsites)
+                final_colors = [mcolors.to_hex(cmap(i)) for i in range(n_subsites)]
+            except KeyError:
+                print(f"[WARNING] Unknown colormap '{subsite_colors}'. Falling back to 'Dark2'.")
+                cmap = colormaps.get_cmap("Dark2").resampled(n_subsites)
+                final_colors = [mcolors.to_hex(cmap(i)) for i in range(n_subsites)]
+        elif isinstance(subsite_colors, list):
+            # Ensure color list is long enough
+            if len(subsite_colors) < n_subsites:
+                needed = n_subsites - len(subsite_colors)
+                subsite_colors = subsite_colors + subsite_colors[:needed]
+            final_colors = subsite_colors[:n_subsites]
+        else:
+            print("[WARNING] subsite_colors must be None, a list, or a string. Using default palette.")
+            cmap = colormaps.get_cmap("Dark2").resampled(n_subsites)
+            final_colors = [mcolors.to_hex(cmap(i)) for i in range(n_subsites)]
+
+        # Build subsite → color dict
+        subsite_color_map = {
+            subsite: final_colors[i]
+            for i, subsite in enumerate(subsite_to_residues.keys())
+        }
+
+        # --- 4. Build residue → color dict ---
+        residue_color_map = {}
+        for subsite, residues in subsite_to_residues.items():
+            col = subsite_color_map[subsite]
+            for r in residues:
+                residue_color_map[r] = col
+
+        return residue_color_map, subsite_color_map
+
+
+    def _get_contrasting_text_color(self,bg_color):
+        """
+        Return 'black' or 'white' depending on which one contrasts better
+        with the given background color.
+
+        This works for:
+        - CSS color names ('red', 'navy', ...)
+        - Hex colors ('#RRGGBB')
+        - RGB/RGBA tuples (0–1 float values)
+
+        Logic:
+        - Convert background color to RGB
+        - Compute luminance using WCAG formula
+        - Return white text for dark backgrounds, black text for light backgrounds
+        """
+
+        try:
+            rgb = mcolors.to_rgb(bg_color)
+        except ValueError:
+            # Fallback: unknown color → assume white background
+            return "black"
+
+        # Compute luminance (per W3C accessibility standard)
+        luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+        # Threshold: 0.6 gives good contrast in practice
+        return "black" if luminance > 0.6 else "white"
+
+
+    def heatmap(
+        self,
+        interaction_data: InteractionData,
+        title: str,
+        mode: str,
+        x_label: str = "",
+        y_label: str = "",
+        min_v: int = None,
+        max_v: int = None,
+        case: str = None,
+        subpocket_path: str = None,
+        subpocket_colors: list[str] = None,
+        save: bool = False
+        ):
         """
         Generates a heatmap based on interaction data using different processing modes.
 
@@ -1612,7 +1777,12 @@ class AnalyzeInteractions:
             max_v (int, optional): Maximum value for the heatmap color scale. Defaults to None (auto-scaling).
             case (str, optional): Case style for the heatmap labels. Can be 'upper', 'lower', or None. Defaults to None.
             save (bool, optional): If True, saves the heatmap instead of displaying it. Defaults to False.
-
+            subpocket_path (str, optional): Path to a CSV defining subpockets and their residues. 
+               Used to color residue labels by subsite. If the file defines fewer than two subsites, coloring is disabled.
+            subpocket_colors (list[str] or str, optional): Custom colors for subpockets 
+               (e.g., ['#8C2CE2','#DFBA52'], colors are used in order and repeated if needed), 
+               or a colormap name (e.g., "Dark2", "tab10". it is interpreted as a Matplotlib colormap name). 
+               
         Returns:
             None: The function either displays the heatmap(s) or saves them to files.
 
@@ -1620,7 +1790,12 @@ class AnalyzeInteractions:
             InvalidModeException: If an unsupported processing mode is provided.
             HeatmapActivityException: If the matrix contains invalid or negative activity values.
         """
+        residue_color_map = None
+        subsite_color_map = None
 
+        if subpocket_path:
+            residue_color_map, subsite_color_map = self._load_subsite_color_maps(subpocket_path,subpocket_colors)
+        
         def validate_and_prepare_matrix(matrix: list[list[str]], mode:str):
             """
             Validates the input matrix and prepares it for processing.
@@ -1771,14 +1946,13 @@ class AnalyzeInteractions:
                 title = title[:-3]
                 display = False
 
-
             for i in range(num_heatmaps):
                 start_col = i * cols_per_heatmap
                 end_col = min((i + 1) * cols_per_heatmap, num_cols)
                 df_subset = df.iloc[:, start_col:end_col]
 
-                plt.figure(figsize=(14, 9))
-                sns.heatmap(df_subset, 
+                fig, ax = plt.subplots(figsize=(14, 9))
+                hm = sns.heatmap(df_subset, 
                             annot=True,
                             linewidths=0.5, 
                             linecolor='lightgrey',
@@ -1791,6 +1965,22 @@ class AnalyzeInteractions:
                                 "format": "%.0f" if mode == 'count' else "%.2f"
                             })
 
+                fig.canvas.draw()
+                # Add Subsite colors
+                if residue_color_map:
+                    for label in ax.get_xticklabels():
+                        res = label.get_text().strip()
+                        back_color = residue_color_map.get(res, "white") 
+                        if back_color == "white":
+                                label.set_color("black")
+                        else:
+                                label.set_color(self._get_contrasting_text_color(back_color))
+                        label.set_bbox(dict(facecolor=back_color,edgecolor='none',boxstyle='round,pad=0.2'))
+                        label.set_fontfamily("DejaVu Sans Mono")
+                    if subsite_color_map:
+                        legend_handles = [Patch(facecolor=subsite_color_map[s], label=s) for s in subsite_color_map]
+                        fig.legend(handles=legend_handles,loc="upper center",bbox_to_anchor=(0.5, 0.05),ncol=min(5, len(legend_handles)),frameon=False)
+                        
                 # if title ends with '(/)', it will not be displayed in the heatmap
                 if display:
                     if num_heatmaps == 1:
@@ -1798,14 +1988,17 @@ class AnalyzeInteractions:
                     else:
                         plt.title(f"{title} (Columns {start_col + 1}-{end_col})")
 
-                plt.xlabel(x_label)
-                plt.ylabel(y_label)
-                plt.subplots_adjust(left=0.145, bottom=0.155, right=1, top=0.935)
+                ax.set_xlabel(x_label)
+                ax.set_ylabel(y_label)
+                fig.subplots_adjust(left=0.145, bottom=0.155, right=1, top=0.935)
 
                 if not save:
                     plt.show()
                 else:
-                    filename = os.path.join(self.saving_directory, f"{title}_part_{i + 1}.png")
+                    if num_heatmaps == 1:
+                        filename = os.path.join(self.saving_directory, f"{title}.png")
+                    else:
+                        filename = os.path.join(self.saving_directory, f"{title}_part_{i + 1}.png")
                     plt.savefig(filename)
                     plt.close()
 
@@ -1829,10 +2022,55 @@ class AnalyzeInteractions:
         # Generate and display/save the heatmap
         plot_heatmap(self=self, data=data, title=title, x_label=x_label, y_label=y_label, mode=mode, min_v=min_v, max_v=max_v, save=save, case=case)
 
+    def _export_bar_data_to_excel(self, filename, indices, data, interaction_labels):
+        """
+        Export bar-chart data to an Excel file.
+
+        Args:
+            filename (str): Output .xlsx filename.
+            indices (list[str]): Labels of each row (residue or PDB ID).
+            data (list[list[int]]): Matrix of counts (elements × interaction types).
+            interaction_labels (list[str]): Names of each interaction type.
+        """
+
+        if not data:
+            raise ValueError("No data to export.")
+        n_cols = len(interaction_labels)
+        for i, row in enumerate(data):
+            if len(row) != n_cols:
+                raise ValueError(
+                  f"Row {i} has {len(row)} columns, expected {n_cols} "
+                  f"(interaction_labels={interaction_labels})"
+                )
+
+        
+        # Prepare DataFrame
+        df_dict = {"Element": indices}
+
+        for i, label in enumerate(interaction_labels):
+            df_dict[label] = [row[i] for row in data]
+
+        df = pd.DataFrame(df_dict)
+
+        # Save to Excel
+        df.to_excel(filename, index=False)
+        print(f"Data successfully saved to {filename}")
+
+    def _export_pie_data_to_excel(self, filename, labels, counts):
+        """
+        Export pìe-chart data to an Excel file.
+        """
+        total = sum(counts)
+        df = pd.DataFrame({"Interaction": labels,"Count": counts,"Percent": [(c/total*100) if total else 0 for c in counts]})
+        df.to_excel(filename, index=False)
+        print(f"Data successfully saved to {filename}")
+        
+        
+
     def bar_chart(self,
         interaction_data: InteractionData,
         plot_name: str,
-        axis: str,
+        axis: str='rows',
         label_x: str = None,
         label_y: str = "Number of intermolecular interactions",
         title: str = "Protein-drug interactions",
@@ -1840,6 +2078,9 @@ class AnalyzeInteractions:
         save: bool = False,
         colors: list[str] = None,
         type_count: bool = False,
+        subpocket_path: str = None,
+        subpocket_colors: list[str] = None,
+        export_xlsx: bool = False,
         case: str = None
     ) -> None:
         """
@@ -1852,9 +2093,10 @@ class AnalyzeInteractions:
         The method supports:
         - **Standard bar charts**: A single bar per residue or PDB complex.
         - **Stacked bar charts** (`stacked=True`): Bars grouped by interaction types, 
-        showing their relative contribution.
-        - **Interactive annotations**: Hovering over stacked bars displays the percentage 
-        of each interaction type.
+            showing their relative contribution.
+        - **Interactive annotations**: When save=False, hovering over a bar displays 
+            context-specific details (e.g., absolute counts, percentages, or totals), depending 
+            on the plot type.
         - **Automatic data splitting**: Large datasets are split into multiple charts.
 
         Args:
@@ -1865,9 +2107,20 @@ class AnalyzeInteractions:
             label_y (str, optional): Label for the y-axis. Defaults to "Number of intermolecular interactions".
             title (str, optional): Title of the chart. Defaults to "Protein-drug interactions".
             stacked (bool, optional): If True, creates a stacked bar chart. Defaults to False.
-            save (bool, optional): If True, saves the chart as a PNG file. Defaults to False.
+            save (bool, optional): If True, saves the chart as a PNG file. If False, 
+              the function displays an interactive plot. Interactive mode requires a 
+              GUI backend (e.g., by running %matplotlib qt or %matplotlib tk). Defaults to False.
             colors (list[str], optional): List of colors for interaction types. Defaults to None.
-            type_count (bool, optional): If True, counts the occurrences of each interaction type. Defaults to False.
+            type_count (bool, optional): Controls how interaction values are counted. 
+              If `True`, counts **all occurences** of each interaction type, even if repeated . 
+              If `False`, each interaction type is counted only **once per residue/complex**. Defaults to `False`.
+            subpocket_path (str, optional): Path to a CSV defining subpockets and their residues. 
+               Used to color residue labels by subsite. If the file defines fewer than two subsites, coloring is disabled.
+            subpocket_colors (list[str] or str, optional): Custom colors for subpockets 
+               (e.g., ['#8C2CE2','#DFBA52'], colors are used in order and repeated if needed), 
+               or a colormap name (e.g., "Dark2", "tab10". it is interpreted as a Matplotlib colormap name). 
+            export_xlsx (bool, optional): If True, exports the bar-chart data to an Excel file 
+               using the same base name as `plot_name` (with `.xlsx` extension). Defaults to False.
             case (str, optional): Case style for the plot leyend. Can be 'upper', 'lower', or None. Defaults to None.
 
         Returns:
@@ -1878,149 +2131,140 @@ class AnalyzeInteractions:
         """
 
         self._verify_case(case=case)
+        
+        residue_color_map = None
+        subsite_color_map = None
 
+        if subpocket_path is not None:
+            residue_color_map, subsite_color_map = self._load_subsite_color_maps(subpocket_path, subpocket_colors)
         matrix = interaction_data.matrix
         self.set_config(interaction_data=interaction_data)
         # Initialize and get data
         colors, data, indices, transposed_data = self._plot_init(colors, matrix, axis, type_count)
+        if not stacked:
+            y_values = [sum(row) for row in data]
+            transposed_data = None
+        else:
+            y_values = None
         max_elements_plot = self.plot_max_cols
         num_x_elements = len(indices)
 
-        # Divide data into multiple plots if necessary
+        # -------------------------------
+        # Divide data into chunks if needed
+        # -------------------------------
+        plots = []
         if num_x_elements > max_elements_plot:
-            # Calculate the number of plots needed
-            num_plots = (num_x_elements + max_elements_plot - 1) // max_elements_plot  # Ceiling division
+            for start in range(0, num_x_elements, max_elements_plot):
+                end = start + max_elements_plot
 
-            # Calculate the number of elements per plot, ensuring equal distribution
-            elements_per_plot = num_x_elements // num_plots
-            remainder = num_x_elements % num_plots
-
-            # Split indices into equally distributed groups
-            split_indices = []
-            start = 0
-            for i in range(num_plots):
-                # Distribute the remainder among the first few plots
-                end = start + elements_per_plot + (1 if i < remainder else 0)
-                split_indices.append((start, end))
-                start = end
-
-            # Ensure all plots have the same Y-axis limit
-            max_y_values = []
-            split_data = []
-
-            for start, end in split_indices:
-                if stacked:
-                    # Safely slice transposed_data based on start and end
-                    split_group = [group[start:end] for group in transposed_data]
-                    split_data.append(split_group)
-                    max_y_values.append(max(sum(col) for col in zip(*split_group)))
-                else:
-                    # Safely slice data based on start and end
-                    split_data.append((data[start:end]))
-                    max_y_values.append(max(split_data[-1][1]))
-
-            global_max_y = max(max_y_values)
-
-            # Generate separate plots for each split group
-            for i, (start, end) in enumerate(split_indices):
-                fig, ax = plt.subplots(num=f"{plot_name}_{i+1}", figsize=(12, 6))
-                subset_indices = indices[start:end]  # Subset of indices for the current plot
+                sub_indices = indices[start:end]
 
                 if stacked:
-                    bars = []
-                    bottoms = [0] * (end - start)
-                    for index, group in enumerate(transposed_data):
-                        group_subset = group[start:end]  # Subset of the group for the current plot
-                        bar = ax.bar(subset_indices, group_subset, bottom=bottoms, label=self.interaction_labels[index], color=colors[index])
-                        bars.append(bar)
-                        bottoms = [b + g for b, g in zip(bottoms, group_subset)]
-
-                    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), ncol=1)
-
-                    # Add interactive cursors to display percentages for stacked bars
-                    cursor = mplcursors.cursor(bars, hover=True)
-
-                    @cursor.connect("add")
-                    def on_add(sel):
-                        # Get the index of the bar in the current figure
-                        bar_index = sel.index
-                        # Translate the index to the original dataset's range
-                        original_index = start + bar_index
-                        # Calculate totals and percentages
-                        total = sum(transposed_data[j][original_index] for j in range(len(transposed_data)))
-                        percentages = [
-                            transposed_data[j][original_index] / total * 100 if total != 0 else 0
-                            for j in range(len(transposed_data))
-                        ]
-                        # Create annotation text
-                        annotation_text = "\n".join(
-                            [f"{self.interaction_labels[j]}: {percentages[j]:.1f}%" for j in range(len(self.interaction_labels))]
-                        )
-                        sel.annotation.set_text(annotation_text)
-                        sel.annotation.get_bbox_patch().set(fc="white", alpha=0.9)  # Set background to white with 90% opacity
+                    sub_transposed = [group[start:end] for group in transposed_data]
+                    plots.append((sub_indices, None, sub_transposed))
                 else:
-                    x_data = data[0][start:end]
-                    y_data = data[1][start:end]
-                    ax.bar(x_data, y_data, color=colors[0] if len(colors) > 0 else None)
-
-                ax.set_ylim(0, global_max_y * 1.1)  # Same Y-axis limit for consistency
-                ax.set_xticks(range(len(subset_indices)))
-                ax.set_xticklabels(subset_indices, rotation=90, ha='center')
-                ax.set_ylabel(label_y)
-                ax.set_xlabel(label_x or "Interacting protein residues")
-                ax.set_title(f"{title} (Part {i+1})")
-                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-                plt.tight_layout()
-
-                self._plot_end(save, plt, fig, f"{plot_name}_part_{i+1}")
+                    sub_y = y_values[start:end]
+                    plots.append((sub_indices, sub_y, None)) 
 
         else:
+            if stacked:
+                plots = [(indices, None, transposed_data)]
+            else:
+                plots = [(indices, y_values, None)]
+
+        for plot_i, (sub_indices, sub_data, sub_transposed) in enumerate(plots):
             # Original plotting logic if data fits in one plot
-            fig, ax = plt.subplots(num=plot_name, figsize=(12, 6))
+            interaction_legend = None
+            fig, ax = plt.subplots(num=plot_name + f"_{plot_i}", figsize=(16, 6))
+            if stacked:
+                right_margin=0.75
+            else:
+                right_margin=0.95
+            fig.subplots_adjust(left=0.10, right=right_margin, bottom=0.25, top=0.95)
+            
             if stacked:
                 bars = []
-                bottoms = [0] * len(indices)
-                for index, group in enumerate(transposed_data):
+                bottoms = [0] * len(sub_indices)
+                for index, group in enumerate(sub_transposed):
                     label = self.interaction_labels[index] if case is None else self.interaction_labels[index].upper() if case == "upper" else self.interaction_labels[index].lower()
-                    bars.append(ax.bar(indices, group, bottom=bottoms, label=label, color=colors[index]))
+                    bars.append(ax.bar(sub_indices, group, bottom=bottoms, label=label, color=colors[index]))
                     bottoms = [i + j for i, j in zip(bottoms, group)]
-
+                max_y = max([sum(col) for col in zip(*sub_transposed)]) if sub_transposed and sub_transposed[0] else 0
                 ax.legend(loc='center left', bbox_to_anchor=(1, 0.5), ncol=1)
-                max_y = max([sum(col) for col in data])
+                # Add interactive tooltips only when showing figure (not when saving)
+                if not save:
+                    cursor = mplcursors.cursor(bars, hover=True)
+                    @cursor.connect("add")
+                    def on_add(sel):
+                        index = sel.index
+                        # Absolute counts
+                        abs_counts = [sub_transposed[i][index] for i in range(len(sub_transposed))]
+                        total = sum(abs_counts)
+                        # Compute percentages using ONLY the current chunk (sub_transposed), not the whole data
+                        percentages = [(abs_counts[i] / total * 100) if total > 0 else 0 for i in range(len(abs_counts))]
+                        annotation_lines = [f"TOTAL interactions: {total}"]
+                        annotation_lines += [f"{self.interaction_labels[i]}: {abs_counts[i]} ({percentages[i]:.1f} %)" for i in range(len(abs_counts))]
+                        sel.annotation.set_text("\n".join(annotation_lines))
+                        sel.annotation.get_bbox_patch().set(fc="white", alpha=0.9)
+                    
             else:
-                if type_count:
-                    data = self.sort_matrix(interaction_data, axis, _count=type_count)
-                    ax.bar(data[0], data[1], color=colors[0] if len(colors) > 0 else None)
-                    max_y = max(data[1])
-                else:
-                    for i in range(len(data)):
-                        data[i] = sum(data[i])
-                    ax.bar(indices, data, color=colors[0] if len(colors) > 0 else None)
-                    max_y = max(data)
+                ax.bar(sub_indices, sub_data, color=colors[0] if colors else None)
+                max_y = max(sub_data) if sub_data else 0
+                if not save:
+                    cursor = mplcursors.cursor(ax.containers[0], hover=True)
+                    @cursor.connect("add")
+                    def on_add(sel):
+                        idx = sel.index
+                        x_lab = sub_indices[idx]
+                        y_val = sub_data[idx]
+                        msg = (f"{x_lab}: {y_val} total interactions" if type_count else f"{x_lab}: {y_val} distinct-type interactions")
+                        sel.annotation.set_text(msg)
+                        sel.annotation.get_bbox_patch().set(fc="white", alpha=0.9)
+                    
 
-            ax.set_ylim(0, max_y * 1.1)
-            ax.set_xticks(range(len(indices)))
-            ax.set_xticklabels(indices, rotation=90, ha='center')
+            ax.set_ylim(0, (max_y * 1.1) if max_y > 0 else 1)
+            ax.tick_params(axis="x", labelrotation=90)
+            #Add subsites colors
+            if residue_color_map is not None and any(idx.split("-")[0] in residue_color_map for idx in sub_indices):
+                    for label in ax.get_xticklabels():
+                          residue_name = label.get_text()
+                          cleaned = residue_name.split("-")[0]   # Remove chain ("-A") if present
+                          back_color = residue_color_map.get(cleaned, "white") 
+                          if back_color == "white":
+                               label.set_color("black")
+                          else:
+                               label.set_color(self._get_contrasting_text_color(back_color))
+                          label.set_bbox(dict(facecolor=back_color,edgecolor='none',boxstyle='round,pad=0.2'))
+                          label.set_fontfamily("DejaVu Sans Mono")
+                    if subsite_color_map:
+                          legend_handles = [Patch(facecolor=subsite_color_map[s], label=s) for s in subsite_color_map]
+                          fig.legend(
+                            handles=legend_handles,
+                            loc="upper center",
+                            bbox_to_anchor=(0.5, 0.1),
+                            ncol=min(5, len(legend_handles)),
+                            frameon=False
+                          )
             ax.set_ylabel(label_y)
             ax.set_xlabel(label_x or "Interacting protein residues")
             ax.set_title(title)
             ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-            plt.tight_layout()
+            if len(plots) == 1:
+                    out_name = plot_name
+            else:
+                    out_name = f"{plot_name}_part{plot_i+1}"
+            self._plot_end(save, plt, fig, out_name)
+        # Export data to Excel if requested
+        if export_xlsx:
+            xlsx_name = f"{plot_name}.xlsx"
+            xlsx_path = os.path.join(self.saving_directory, xlsx_name)
 
-        # Add interactive cursors to display percentages for stacked bars
-        if stacked:
-            cursor = mplcursors.cursor(bars, hover=True)
+            if not stacked:
+                    self._export_bar_data_to_excel(filename=xlsx_path, indices=indices, data=[[v] for v in y_values], interaction_labels=["Total_raw_interactions"] if type_count else ["Total_distinct_interaction_types"])
 
-            @cursor.connect("add")
-            def on_add(sel):
-                index = sel.index
-                total = sum(transposed_data[i][index] for i in range(len(transposed_data)))
-                percentages = [transposed_data[i][index] / total * 100 if total != 0 else 0 for i in range(len(transposed_data))]
-                annotation_text = "\n".join([f"{self.interaction_labels[i]}: {percentages[i]:.1f}%" for i in range(len(self.interaction_labels))])
-                sel.annotation.set_text(annotation_text)
-                sel.annotation.get_bbox_patch().set(fc="white", alpha=0.9)  # Set background to white with 90% opacity
-
-        self._plot_end(save, plt, fig, plot_name)
+            # CASE 2 — stacked=True (regardless of type_count)
+            elif stacked:
+                    self._export_bar_data_to_excel(filename=xlsx_path, indices=indices, data=data, interaction_labels=self.interaction_labels)
 
     def pie_chart(self,
         interaction_data: InteractionData,
@@ -2030,7 +2274,8 @@ class AnalyzeInteractions:
         save: bool = False,
         colors: list[str] = None,
         type_count: bool = False,
-        case: str = None
+        case: str = None,
+        export_xlsx: bool = False
     ) -> None:
         """
         Generates a pie chart based on interaction data.
@@ -2043,11 +2288,15 @@ class AnalyzeInteractions:
             interaction_data (InteractionData): The object containing the interaction matrix.
             plot_name (str): The name of the plot (used for saving).
             axis (str): Defines whether to analyze rows ('rows') or columns ('columns').
-            save (bool, optional): If True, saves the pie chart instead of displaying it. Defaults to False.
+            title (str): Title plot
+            save (bool, optional): If True, saves the pie chart instead of displaying it. 
+                                   If False, an interactive chart is geenrated. Defaults to False.
             colors (list[str], optional): List of colors for interaction types. Defaults to None.
-            type_count (bool, optional): If True, counts the occurrences of each interaction type instead of 
-                                        using interaction values. Defaults to False.
+            type_count (bool, optional): If False, counts distinct interaction types 
+                                        If True, sums all interaction values. Defaults to False.
             case (str, optional): Case style for the plot leyend. Can be 'upper', 'lower', or None. Defaults to None.
+            export_xlsx (`bool`, optional): If True, exports the bar-chart data to an Excel file using the same name 
+                                            defined in `plot_name` (with `.xlsx` extension). Defaults to `False`.
 
         Returns:
             None: The function either displays or saves the plot.
@@ -2084,8 +2333,10 @@ class AnalyzeInteractions:
             fig, ax_pie = plt.subplots(figsize=(10, 6))
 
             # Plot the pie chart
-            ax_pie.pie(sizes, labels=None, colors=colors, autopct='', startangle=140)
+            wedges, texts = ax_pie.pie(sizes, labels=None, colors=colors, startangle=140)
             ax_pie.set_title(title)
+            for w in wedges:
+                w.set_picker(5) 
 
             # Calculate percentages and create legend
             total = sum(total_interactions)
@@ -2095,8 +2346,10 @@ class AnalyzeInteractions:
                 if count != 0
             ]
             ax_pie.legend(legend_labels, title="Interaction Types", loc="center left", bbox_to_anchor=(1, 0, 0.5, 1))
+            
+            wedges = list(wedges) 
 
-            return fig
+            return fig, ax_pie, wedges
 
         def _prepare_pie_chart_data(non_zero_interactions: list[tuple]) -> tuple:
             """
@@ -2115,19 +2368,77 @@ class AnalyzeInteractions:
         self._verify_case(case=case)
         self.set_config(interaction_data=interaction_data)
         matrix = interaction_data.matrix
+        
         # Initialize plotting parameters and data
         colors, data, indices, transposed_data = self._plot_init(colors, matrix, axis, type_count)
-
+        
         # Calculate total interaction and prepade data for plotting
         total_interactions = [sum(transposed_data[i]) for i in range(len(transposed_data))]
         non_zero_interactions = _filter_non_zero_interactions(total_interactions, colors)
         labels_pie, sizes, pie_colors = _prepare_pie_chart_data(non_zero_interactions)
+        labels_pie = list(labels_pie); sizes = list(sizes); pie_colors = list(pie_colors)
         
+        if not sizes:
+            print("No interaction types with non-zero counts to plot.")
+            return
         # Plot the pie chart
-        fig = _plot_pie_chart(labels_pie, sizes, pie_colors, total_interactions, case, title)
+        fig, ax_pie, wedges = _plot_pie_chart(labels_pie, sizes, pie_colors, total_interactions, case, title)
 
+        if (not save) and wedges:
+                # Create one persistent annotation (hidden by default)
+                annot = ax_pie.annotate(
+                        "",
+                        xy=(0, 0),
+                        xytext=(10, 10),
+                        textcoords="offset points",
+                        bbox=dict(boxstyle="round", fc="white", alpha=0.9),
+                        arrowprops=dict(arrowstyle="->")
+                )
+                annot.set_visible(False)
+
+                def _on_move(event):
+                        if event.inaxes != ax_pie:
+                                if annot.get_visible():
+                                        annot.set_visible(False)
+                                        fig.canvas.draw_idle()
+                                return
+
+                        for i, w in enumerate(wedges):
+                                contains, _ = w.contains(event)
+                                if contains:
+                                        label = labels_pie[i]
+                                        count = sizes[i]
+                                        total = sum(sizes)
+                                        pct = (count / total * 100) if total else 0
+
+                                        annot.xy = (event.xdata, event.ydata)
+                                        annot.set_text(f"{label}: {count} ({pct:.1f}%)")
+                                        annot.set_visible(True)
+                                        fig.canvas.draw_idle()
+                                        return
+
+                        if annot.get_visible():
+                                annot.set_visible(False)
+                                fig.canvas.draw_idle()
+
+                cid = fig.canvas.mpl_connect("motion_notify_event", _on_move)
+
+                # Keep references to avoid garbage collection
+                if not hasattr(self, "_pie_hover_state"):
+                        self._pie_hover_state = {}
+                self._pie_hover_state[plot_name] = {
+                        "cid": cid,
+                        "annot": annot,
+                        "fig": fig
+                }
         # Show or save the plot
         self._plot_end(save, plt, fig, plot_name)
+        
+        if export_xlsx:
+            xlsx_path = os.path.join(self.saving_directory, f"{plot_name}.xlsx")
+            self._export_pie_data_to_excel(xlsx_path, labels_pie, sizes)
+        
+
 
     def remove_empty_axis(
             self, 
