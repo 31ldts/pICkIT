@@ -49,9 +49,10 @@ ARPEGGIO_INT_ENT = [
 
 # Types of molecular contacts identified by Arpeggio
 ARPEGGIO_CONT = [
-    "covalent", "hbond", "aromatic", "hydrophobic", "polar", "ionic", "xbond", "metal", 
-    "carbonyl", "CARBONPI", "CATIONPI", "DONORPI", "HALOGENPI", "METSULPHURPI", 
-    "AMIDEAMIDE", "AMIDERING", "weak_hbond", "weak_polar"
+    "AMIDEAMIDE", "AMIDERING", "CARBONPI", "CATIONPI", "METSULPHURPI", "covalent", 
+    "hydrophobic", "carbonyl", "aromatic",  "metal", "ionic", "hbond", 
+    "DONORPI", "weak_hbond", "polar", "weak_polar", "xbond", "HALOGENPI"
+    
 ]
 
 # Types of Arpeggio interactions (currently only plane-plane interactions)
@@ -516,8 +517,8 @@ class AnalyzeInteractions:
                 self.interaction_labels = INTERACTION_LABELS  # Default interaction labels
                 self.plot_colors = COLORS  # Default color configuration
             elif mode == 'arpeggio':
-                self.interaction_labels = ARPEGGIO_CONT + ARPEGGIO_TYPE
-                self.interaction_labels.sort(key=lambda s: (s.lower(), s.islower()))
+                self.interaction_labels = ARPEGGIO_CONT[:2] + ARPEGGIO_TYPE + ARPEGGIO_CONT[2:]
+                #self.interaction_labels.sort(key=lambda s: (s.lower(), s.islower()))
                 self.plot_colors = ARPEGGIO_COLORS  # Default color c
             else:
                 raise InvalidModeException(mode=mode, expected_values=PROGRAM_MODES)
@@ -946,8 +947,8 @@ class AnalyzeInteractions:
             """
             Processes Arpeggio interaction files, extracting relevant data and updating the matrix.
             """
-            interaction_list = ARPEGGIO_CONT + ARPEGGIO_TYPE
-            interaction_list.sort(key=lambda s: (s.lower(), s.islower()))
+            interaction_list = ARPEGGIO_CONT[:2] + ARPEGGIO_TYPE + ARPEGGIO_CONT[2:]
+            #interaction_list.sort(key=lambda s: (s.lower(), s.islower()))
 
             # Filter to obtain entries with interacting_entities == INTER
             inter_set = [elem for elem in content if elem["interacting_entities"] in ARPEGGIO_INT_ENT]
@@ -1113,7 +1114,10 @@ class AnalyzeInteractions:
                             for interaction in entry[field]:
                                 interaction_set.add(interaction)
             interaction_list = list(interaction_set)
-            interaction_list.sort(key=lambda s: (s.lower(), s.islower()))
+            global_order = ARPEGGIO_CONT[:2] + ARPEGGIO_TYPE + ARPEGGIO_CONT[2:]
+            # Filtra solo los que están presentes en el set y mantén el orden de global_order
+            interaction_list = [item for item in global_order if item in interaction_set]
+            #interaction_list.sort(key=lambda s: (s.lower(), s.islower()))
         
         # Analyze each file in the directory
         for index, file in enumerate(files):
@@ -1751,6 +1755,7 @@ class AnalyzeInteractions:
         case: str = None,
         subpocket_path: str = None,
         subpocket_colors: list[str] = None,
+        remove_empty: bool = False,
         save: bool = False
         ):
         """
@@ -1900,7 +1905,7 @@ class AnalyzeInteractions:
                 data[residue] = [np.nan for _ in range(len(self.interaction_labels))]
             return data, self.transpose_matrix(interaction_data=matrix)
 
-        def plot_heatmap(self, data, title, x_label, y_label, mode, min_v, max_v, save, case):
+        def plot_heatmap(self, data, title, x_label, y_label, mode, min_v, max_v, save, case, remove_empty):
             """
             Creates and optionally saves the heatmap visualization.
 
@@ -1918,6 +1923,14 @@ class AnalyzeInteractions:
                 None: Displays the heatmap or saves it to a file.
             """
             df = pd.DataFrame(data, index=self.interaction_labels if case == None else [elemento.upper() for elemento in self.interaction_labels] if case == "upper" else [elemento.lower() for elemento in self.interaction_labels])
+            
+            # Filtrar filas completamente vacías si se solicita
+            if remove_empty:
+                df = df.dropna(how='all')
+                if df.empty:
+                    print("Advertencia: No hay datos para mostrar después de eliminar las filas vacías.")
+                    return
+        
             max_cols = self.heat_max_cols  # Maximum number of columns per heatmap
             num_cols = len(df.columns)
 
@@ -2020,7 +2033,7 @@ class AnalyzeInteractions:
         data = process_matrix(matrix=matrix, mode=mode)
 
         # Generate and display/save the heatmap
-        plot_heatmap(self=self, data=data, title=title, x_label=x_label, y_label=y_label, mode=mode, min_v=min_v, max_v=max_v, save=save, case=case)
+        plot_heatmap(self=self, data=data, title=title, x_label=x_label, y_label=y_label, mode=mode, min_v=min_v, max_v=max_v, save=save, case=case, remove_empty=remove_empty)
 
     def _export_bar_data_to_excel(self, filename, indices, data, interaction_labels):
         """
