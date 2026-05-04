@@ -1756,6 +1756,7 @@ class AnalyzeInteractions:
         subpocket_path: str = None,
         subpocket_colors: list[str] = None,
         remove_empty: bool = False,
+        split_by_atom: bool = False,
         save: bool = False
         ):
         """
@@ -1829,50 +1830,88 @@ class AnalyzeInteractions:
                         raise MissedActivityException("The matrix does not contain activity values.")
             return matrix
 
-        def process_matrix(matrix: list[list[str]], mode: str) -> dict:
+        def process_matrix(
+            matrix: list[list[str]], 
+            mode: str, 
+            nan_template: list[float],
+            split_by_atom: bool = False
+        ) -> dict:
             """
-            Processes the matrix based on the specified mode.
-            
-            Depending on the mode, calculates metrics such as minimum, maximum, mean, count, or percentage of interactions.
+            Procesa la matriz según el modo indicado, creando dinámicamente las entradas
+            del diccionario de datos. Si split_by_atom es True, desglosa cada interacción
+            por los átomos concretos del residuo que participan.
 
             Args:
-                matrix (list[list[str]]): The input matrix to process.
-                mode (str): The mode to process the data. Supported modes are 'min', 'max', 'mean', 'count', and 'percent'.
+                matrix (list[list[str]]): Matriz transpuesta (filas = residuos, columnas = ligandos).
+                mode (str): Modo de procesamiento ('min','max','mean','count','percent').
+                nan_template (list[float]): Plantilla de NaN para inicializar nuevos residuos.
+                split_by_atom (bool): Si es True, crea una entrada por cada átomo del residuo
+                                    que interviene en la interacción.
 
             Returns:
-                dict: A dictionary mapping residues to interaction values processed according to the mode.
+                dict: Diccionario {residuo (o residuo átomo): lista de valores por tipo de interacción}.
             """
-            data, matrix = initialize_data(matrix=matrix)
+            data = {}
             op = {"min": operator.lt, "max": operator.gt}.get(mode, None)
 
+            # matrix[0] contiene la cabecera (residuos), el resto son filas de residuos
             for line in matrix[1:]:
-                if mode in ["min", "max", "mean"]:
+                # La actividad se extrae de la primera columna de cada fila (nombre del ligando)
+                if mode in ("min", "max", "mean"):
                     activity = float(line[0].split('(')[-1].replace(")", ""))
+
                 for index in range(1, len(line)):
-                    residue = matrix[0][index].split('-')[0]
+                    residue_base = matrix[0][index].split('-')[0]   # nombre base del residuo
                     cell = line[index]
                     sections = cell.split(DIFF_DELIM)
 
                     for section in sections:
-                        if is_not_empty_or_dash(section.split(' ')[0]):
-                            interaction = int(section.split(' ')[0]) - 1
-                            current_value = data[residue][interaction]
+                        # Ignorar celdas vacías o guiones
+                        if not is_not_empty_or_dash(section.split(' ')[0]):
+                            continue
 
-                            if mode in ["min", "max"] and activity > 0.0000:
+                        interaction = int(section.split(' ')[0]) - 1
+
+                        # Determinar la(s) clave(s) con las que trabajaremos
+                        keys_to_update = []
+
+                        if split_by_atom:
+                            # Extraer los átomos del residuo: parte antes del primer '-'
+                            # Formato: "1 | prot_atom1,prot_atom2-lig_atom |"
+                            parts = section.split(GROUP_DELIM)
+                            if len(parts) >= 2:
+                                atoms_str = parts[1]                # "prot_atom1,prot_atom2-lig_atom"
+                                prot_part = atoms_str.split('-')[0] # "prot_atom1,prot_atom2"
+                                atom_list = [a.strip() for a in prot_part.split(',') if a.strip()]
+                                keys_to_update = [f"{residue_base} {atom}" for atom in atom_list]
+                        else:
+                            keys_to_update = [residue_base]
+
+                        # Procesar cada clave (residuo o residuo+átomo)
+                        for key in keys_to_update:
+                            # Inicializar si no existe
+                            if key not in data:
+                                data[key] = nan_template.copy()
+
+                            current_value = data[key][interaction]
+
+                            # --- Lógica de acumulación (idéntica a la original) ---
+                            if mode in ("min", "max") and activity > 0.0000:
                                 if np.isnan(current_value) or op(activity, current_value):
-                                    data[residue][interaction] = activity
+                                    data[key][interaction] = activity
                             elif mode == "mean" and activity > 0.0000:
                                 if not isinstance(current_value, list):
-                                    data[residue][interaction] = [1, activity]
+                                    data[key][interaction] = [1, activity]
                                 else:
                                     count, total = current_value
-                                    data[residue][interaction] = [count + 1, total + activity]
-                            elif mode in ["count", "percent"]:
+                                    data[key][interaction] = [count + 1, total + activity]
+                            elif mode in ("count", "percent"):
                                 if np.isnan(current_value):
-                                    data[residue][interaction] = 1
+                                    data[key][interaction] = 1
                                 else:
-                                    data[residue][interaction] += 1
+                                    data[key][interaction] += 1
 
+            # Postprocesado para 'mean' y 'percent'
             if mode == "mean":
                 for residue, interactions in data.items():
                     for i, value in enumerate(interactions):
@@ -1887,23 +1926,21 @@ class AnalyzeInteractions:
 
             return data
 
-        def initialize_data(matrix: list[list[str]]) -> list[list[float]]:
+        def initialize_data(matrix: list[list[str]]) -> tuple[list[float], list[list[str]]]:
             """
-            Initializes an empty data structure to store processed interaction values.
+            Devuelve una plantilla de NaN (una por tipo de interacción) y la matriz transpuesta.
 
             Args:
-                matrix (list[list[str]]): The input matrix to initialize data for.
+                matrix (list[list[str]]): Matriz validada (filas = ligandos, columnas = residuos).
 
             Returns:
-                tuple: A tuple containing:
-                    - dict: The initialized data structure with residues as keys and NaN interaction values.
-                    - list[list[str]]: The transposed matrix for processing.
+                tuple: (nan_template, transposed_matrix)
+                    - nan_template: lista de np.nan con longitud igual al número de tipos de interacción.
+                    - transposed_matrix: matriz transpuesta (filas = residuos, columnas = ligandos).
             """
-            data = {}
-            for line in matrix[1:]:
-                residue = line[0].split('-')[0]
-                data[residue] = [np.nan for _ in range(len(self.interaction_labels))]
-            return data, self.transpose_matrix(interaction_data=matrix)
+            nan_template = [np.nan] * len(self.interaction_labels)
+            transposed = self.transpose_matrix(interaction_data=matrix)
+            return nan_template, transposed
 
         def plot_heatmap(self, data, title, x_label, y_label, mode, min_v, max_v, save, case, remove_empty):
             """
@@ -1922,7 +1959,23 @@ class AnalyzeInteractions:
             Returns:
                 None: Displays the heatmap or saves it to a file.
             """
+
+            def residue_sort_key(label: str):
+                """
+                Clave de ordenación para los residuos (y opcionalmente átomos).
+                Formato esperado: 'XXX num' o 'XXX num AA' (AA = átomo).
+                Orden primario: número (segundo elemento tras split).
+                Orden secundario: átomo (tercer elemento, alfabético; si no existe, cadena vacía).
+                """
+                parts = label.split()
+                num = int(parts[1]) if len(parts) > 1 else 0
+                atom = parts[2] if len(parts) > 2 else ""
+                return (num, atom)
+
             df = pd.DataFrame(data, index=self.interaction_labels if case == None else [elemento.upper() for elemento in self.interaction_labels] if case == "upper" else [elemento.lower() for elemento in self.interaction_labels])
+            
+            sorted_columns = sorted(df.columns, key=residue_sort_key)
+            df = df.reindex(columns=sorted_columns)
             
             # Filtrar filas completamente vacías si se solicita
             if remove_empty:
@@ -2030,7 +2083,13 @@ class AnalyzeInteractions:
             raise InvalidModeException(mode=mode, expected_values=HEATMAP_MODES)
 
         # Process the matrix based on the mode
-        data = process_matrix(matrix=matrix, mode=mode)
+        nan_template, matrix = initialize_data(matrix=matrix)
+        data = process_matrix(
+            matrix=matrix, 
+            mode=mode, 
+            nan_template=nan_template,
+            split_by_atom=split_by_atom
+        )
 
         # Generate and display/save the heatmap
         plot_heatmap(self=self, data=data, title=title, x_label=x_label, y_label=y_label, mode=mode, min_v=min_v, max_v=max_v, save=save, case=case, remove_empty=remove_empty)
