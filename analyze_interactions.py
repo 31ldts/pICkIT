@@ -1652,17 +1652,43 @@ class AnalyzeInteractions:
                     cleaned_res = []
                     for item in residues_raw:
                         res = item.strip()
-
-                        # Remove <main> or <side>
+                        side_chain = None  # Variable para almacenar si es main o side
+                        
+                        # Detectar y extraer <main> o <side>
                         if "<" in res:
-                            res = res.split("<")[0].strip()
-
-                        # Convert "GLU166" → "GLU 166"
-                        if len(res) > 3 and res[:3].isalpha() and res[3:].isdigit():
-                            res = res[:3] + " " + res[3:]
-
+                            # Extraer lo que está dentro de <>
+                            if "<main>" in res:
+                                side_chain = "main"
+                                res = res.replace("<main>", "").strip()
+                            elif "<side>" in res:
+                                side_chain = "side"
+                                res = res.replace("<side>", "").strip()
+                            else:
+                                # Si hay otro <...> que no sea main/side, solo quitarlo
+                                res = res.split("<")[0].strip()
+                        
+                        # Convertir "GLU166" → "GLU 166" (si no hay espacio ya)
+                        # Primero verificamos el formato sin espacios
+                        if len(res) > 3 and res[:3].isalpha() and res[3:].replace(" ", "").isdigit():
+                            # Asegurar un máximo de un espacio en la parte numérica
+                            parts = res[:3] + " " + res[3:].replace(" ", "")
+                            # Normalizar: eliminar espacios múltiples y dejar solo uno
+                            parts = " ".join(parts.split())
+                            res = parts
+                        
+                        # Aplicar modificaciones según side_chain
+                        if side_chain == "main":
+                            # Añadir los átomos de la cadena principal
+                            # Asumiendo átomos estándar: N, CA, C, O
+                            for atom in ["N", "CA", "C", "O"]:
+                                cleaned_res.append(f"{res} {atom}")
+                            continue
+                        elif side_chain == "side":
+                            # Añadir un + al final
+                            res = f"{res} +"
+                        
                         cleaned_res.append(res)
-
+                    
                     subsite_to_residues[subsite] = cleaned_res
 
         except Exception as e:
@@ -2036,12 +2062,28 @@ class AnalyzeInteractions:
                 if residue_color_map:
                     for label in ax.get_xticklabels():
                         res = label.get_text().strip()
-                        back_color = residue_color_map.get(res, "white") 
+                        
+                        # Primero buscar coincidencia exacta
+                        back_color = residue_color_map.get(res, "white")
+                        
+                        # Si no hay coincidencia exacta, buscar versión con "+"
                         if back_color == "white":
-                                label.set_color("black")
+                            # Verificar si el residuo tiene formato "RES NUM" (con dos partes)
+                            parts = res.split()
+                            if len(parts) >= 2:
+                                # Probar con el formato "RES NUM +"
+                                res_with_plus = f"{parts[0]} {parts[1]} +"
+                                back_color = residue_color_map.get(res_with_plus, "white")
+                        
+                        # Si aún es blanco y el residuo es de cadena principal (tiene 3 partes: RES NUM ATOMO)
+                        # En ese caso se queda blanco (como pide el requisito)
+                        
+                        if back_color == "white":
+                            label.set_color("black")
                         else:
-                                label.set_color(self._get_contrasting_text_color(back_color))
-                        label.set_bbox(dict(facecolor=back_color,edgecolor='none',boxstyle='round,pad=0.2'))
+                            label.set_color(self._get_contrasting_text_color(back_color))
+                        
+                        label.set_bbox(dict(facecolor=back_color, edgecolor='none', boxstyle='round,pad=0.2'))
                         label.set_fontfamily("DejaVu Sans Mono")
                     if subsite_color_map:
                         legend_handles = [Patch(facecolor=subsite_color_map[s], label=s) for s in subsite_color_map]
