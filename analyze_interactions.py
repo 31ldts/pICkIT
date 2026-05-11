@@ -1669,9 +1669,9 @@ class AnalyzeInteractions:
                         
                         # Convertir "GLU166" → "GLU 166" (si no hay espacio ya)
                         # Primero verificamos el formato sin espacios
-                        if len(res) > 3 and res[:3].isalpha() and res[3:].replace(" ", "").isdigit():
+                        if len(res) > 3 and res[:3].isalpha() and res[3:].split(" ")[0].replace(" ", "").isdigit():
                             # Asegurar un máximo de un espacio en la parte numérica
-                            parts = res[:3] + " " + res[3:].replace(" ", "")
+                            parts = res[:3] + " " + res[3:]
                             # Normalizar: eliminar espacios múltiples y dejar solo uno
                             parts = " ".join(parts.split())
                             res = parts
@@ -2072,8 +2072,12 @@ class AnalyzeInteractions:
                             parts = res.split()
                             if len(parts) >= 2:
                                 # Probar con el formato "RES NUM +"
-                                res_with_plus = f"{parts[0]} {parts[1]} +"
-                                back_color = residue_color_map.get(res_with_plus, "white")
+                                if parts[2] not in ["N", "CA", "C", "O"]:
+                                    res_with_plus = f"{parts[0]} {parts[1]} +"
+                                    back_color = residue_color_map.get(res_with_plus, "white")
+                                if back_color == "white":
+                                    res_with_plus = f"{parts[0]} {parts[1]}"
+                                    back_color = residue_color_map.get(res_with_plus, "white")
                         
                         # Si aún es blanco y el residuo es de cadena principal (tiene 3 partes: RES NUM ATOMO)
                         # En ese caso se queda blanco (como pide el requisito)
