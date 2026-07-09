@@ -2147,7 +2147,7 @@ class AnalyzeInteractions:
                         if back_color == "white":
                             # Verificar si el residuo tiene formato "RES NUM" (con dos partes)
                             parts = res.split()
-                            if len(parts) >= 2:
+                            if len(parts) >= 3:
                                 # Probar con el formato "RES NUM +"
                                 if parts[2] not in ["N", "CA", "C", "O"]:
                                     res_with_plus = f"{parts[0]} {parts[1]} +"
