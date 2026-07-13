@@ -1,4 +1,4 @@
-from analyze_interactions import AnalyzeInteractions as new_api
+from src.pickit.analyze_interactions import AnalyzeInteractions as new_api
 
 analyzer = new_api()
 

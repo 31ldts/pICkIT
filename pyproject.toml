@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pickit-urv"
+version = "0.1.0"
+description = "Automated analysis of protein-ligand interactions"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "AGPL-3.0-or-later" }
+authors = [
+    { name = "Said Trujillo-De Leon", email = "31ldts@gmail.com" },
+    { name = "Ariadna Llop-Peiro", email = "ariadna.llop@urv.cat" },
+    { name = "Gerard Pujadas", email = "gerard.pujadas@gmail.com" },
+    { name = "Santiago Garcia-Vallve", email = "santi.garcia-vallve@urv.cat" },
+    { name = "Aleix Gimeno", email = "aleix.gimeno@urv.cat" },
+]
+dependencies = [
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "seaborn",
+    "mplcursors",
+    "openpyxl",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+
+[project.urls]
+Homepage = "https://github.com/31ldts/pICkIT"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
