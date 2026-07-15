@@ -38,6 +38,9 @@ Homepage = "https://github.com/31ldts/pICkIT"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+pickit = ["template.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

@@ -30,9 +30,9 @@ from .constants import (
     AMINO_ACID_CODES,
     ARPEGGIO_COLORS,
     ARPEGGIO_CONT,
-    ARPEGGIO_INT_ENT,
     ARPEGGIO_TYPE,
     COLORS,
+    DEFAULT_TEMPLATE_FILE,
     DIFF_DELIM,
     GROUP_DELIM,
     INTERACTION_LABELS,
@@ -41,6 +41,8 @@ from .constants import (
 )
 from .exceptions import FileOrDirectoryException, InvalidColorException, InvalidModeException
 from .models import InteractionData
+from .parsers.arpeggio import parse_arpeggio_file, parse_arpeggio_file_template
+from .parsers.ichem import parse_ichem_file
 
 
 class IOMixin:
@@ -366,65 +368,6 @@ class IOMixin:
 
             return matrix
 
-        def modify_cell(
-            text: str,
-            interaction: str,
-            atoms: str,
-            interaction_labels: list,
-        ) -> str:
-            """
-            Updates the cell content by adding interaction type and involved atoms.
-
-            Args:
-                text (str): Current content of the matrix cell.
-                interaction (str): Type of interaction occurring.
-                atoms (str): Atoms involved in the interaction.
-                interaction_labels (list): List of predefined interaction labels.
-
-            Returns:
-                str: Updated cell content with formatted interaction information.
-            """
-            # Create an interaction_map based on the global INTERACTION_LABELS list
-            interaction_map = {label: str(index + 1) for index, label in enumerate(interaction_labels)}
-
-            # Assign the interaction code based on the interaction_map, or default to the last value
-            interaction_code = interaction_map.get(interaction, str(len(interaction_labels)))
-
-            # If the text is empty, add the interaction with the provided atoms
-            if text == "":
-                return f"{interaction_code} {GROUP_DELIM}{atoms}{GROUP_DELIM}"
-
-            # Split the cell content and remove empty parts, keeping existing interactions
-            content = text.replace(DIFF_DELIM, "").split(GROUP_DELIM)[:-1]
-            exists = False
-            cell = ""
-
-            # Check if the interaction already exists and add atoms to the corresponding interaction
-            for index, segment in enumerate(content):
-                if index % 2 == 0 and interaction_code == segment.strip():
-                    # Delete repate entries
-                    entries = content[index + 1].split(SAME_DELIM)
-                    detected = False
-                    for entry in entries:
-                        if entry == atoms:
-                            detected = True
-                            break
-                    if not detected:
-                        content[index + 1] += f"{SAME_DELIM}{atoms}"
-                    exists = True
-                    break
-
-            # Rebuild the cell content, preserving existing interactions
-            cell = DIFF_DELIM.join(
-                f"{content[i]}{GROUP_DELIM}{content[i + 1]}{GROUP_DELIM}" for i in range(0, len(content), 2)
-            )
-
-            # If the interaction didn't exist, append it at the end
-            if not exists:
-                cell += f"{DIFF_DELIM}{interaction_code} {GROUP_DELIM}{atoms}{GROUP_DELIM}"
-
-            return cell
-
         def read_file(file_name: str) -> list[str]:
             """
             Reads the specified file and returns its content as a list of lines.
@@ -527,42 +470,6 @@ class IOMixin:
 
             return matrix
 
-        def validate_string(input_string: str) -> bool:
-            """
-            Validates a residue string to ensure it follows the expected format.
-
-            Format:
-            - Starts with a three-letter amino acid abbreviation.
-            - Followed by spaces and a numeric sequence.
-            - Ends with a dash and additional characters.
-
-            Args:
-                input_string (str): The residue string to validate.
-
-            Returns:
-                bool: True if the format is valid, False otherwise.
-            """
-            # Regular expression to validate the required format
-            pattern = r"^[A-Z]{3} +\d+-.+$"
-
-            # Match the input string with the regular expression pattern
-            return bool(re.match(pattern, input_string))
-
-        def get_protein_ligand(begin: dict, end: dict) -> tuple[dict, dict]:
-            if begin["label_comp_type"] == "P" and end["label_comp_type"] == "P":
-                if begin["label_comp_id"] in self.aa and end["label_comp_id"] in self.aa:
-                    return None, None
-                elif begin["label_comp_id"] in self.aa:
-                    return begin, end
-                else:
-                    return end, begin
-            elif begin["label_comp_type"] == "P":
-                return begin, end
-            elif end["label_comp_type"] == "P":
-                return end, begin
-            else:
-                return None, None
-
         def validate_file(filename, mode):
             """
             Checks if a filename is valid (i.e., contains no spaces).
@@ -610,207 +517,6 @@ class IOMixin:
                     raise FileOrDirectoryException(path=directory, error_type="empty")
             return files
 
-        def ichem_analysis(content, index, files, subunits_set, cont, matrix, aa):
-            """
-            Processes IChem interaction files, extracting relevant data and updating the matrix.
-            """
-            for line in content:
-                elements = line.split(GROUP_DELIM)
-                if len(elements) == 10:
-                    interaction = elements[0].strip().replace("\t", "")
-                    residue = elements[3].strip().replace("\t", "")
-                    if validate_string(residue):
-                        if not subunit:
-                            sections = residue.split("-")
-                            residue = sections[0]
-                            subunits_set.add(sections[1])
-
-                        atoms = (
-                            f"{elements[1].strip()}-{elements[4].strip()}"
-                            if protein and ligand
-                            else elements[1].strip()
-                            if protein
-                            else elements[4].strip()
-                            if ligand
-                            else ""
-                        )
-                        if not subunit:
-                            atoms += f"({sections[1]})"
-
-                        if residue not in aa:
-                            aa[residue] = cont
-                            cont += 1
-                        column = aa[residue]
-
-                        # Ensure matrix size and modify cell
-                        if len(matrix) <= column:
-                            matrix.append([""] * len(files))
-
-                        matrix[column][index] = modify_cell(
-                            text=matrix[column][index],
-                            interaction=interaction,
-                            atoms=atoms,
-                            interaction_labels=INTERACTION_LABELS,
-                        )
-            return matrix, aa, cont, subunits_set
-
-        def arpeggio_analysis(content, index, files, subunits_set, cont, matrix, aa):
-            """
-            Processes Arpeggio interaction files, extracting relevant data and updating the matrix.
-            """
-            interaction_list = ARPEGGIO_CONT[:2] + ARPEGGIO_TYPE + ARPEGGIO_CONT[2:]
-            # interaction_list.sort(key=lambda s: (s.lower(), s.islower()))
-
-            # Filter to obtain entries with interacting_entities == INTER
-            inter_set = [elem for elem in content if elem["interacting_entities"] in ARPEGGIO_INT_ENT]
-            # Filter to obtain entries with the desired contact or type
-            inter_set = [
-                elem
-                for elem in inter_set
-                for contact in elem["contact"]
-                if contact in ARPEGGIO_CONT or elem["type"] in ARPEGGIO_TYPE
-            ]
-            for inter in inter_set:
-                if inter["type"] in ARPEGGIO_TYPE:
-                    contact = [inter["type"]]
-                else:
-                    contact = [conta for conta in inter["contact"] if conta in ARPEGGIO_CONT]
-                prot, lig = get_protein_ligand(begin=inter["bgn"], end=inter["end"])
-                if prot is not None:
-                    residue = prot["label_comp_id"] + " " + str(prot["auth_seq_id"])
-                    prot_atom = prot["auth_atom_id"]
-                    prot_subunit = prot["auth_asym_id"]
-                    ligand_code = lig["label_comp_id"]
-                    lig_atom = lig["auth_atom_id"]
-
-                    subunits_set.add(prot_subunit)
-                    atoms = (
-                        f"{prot_atom}-{lig_atom}"
-                        if protein and ligand
-                        else prot_atom
-                        if protein
-                        else lig_atom
-                        if ligand
-                        else ""
-                    )
-
-                    if subunit:
-                        residue += "-" + prot_subunit
-                    else:
-                        atoms += f"({prot_subunit})"
-
-                    if residue not in aa:
-                        aa[residue] = cont
-                        cont += 1
-                    column = aa[residue]
-
-                    # Ensure matrix size and modify cell
-                    if len(matrix) <= column:
-                        matrix.append([""] * len(files))
-
-                    for interaction in contact:
-                        matrix[column][index] = modify_cell(
-                            text=matrix[column][index],
-                            interaction=interaction,
-                            atoms=atoms,
-                            interaction_labels=interaction_list,
-                        )
-
-            return matrix, ligand_code, aa, cont, subunits_set
-
-        def arpeggio_analysis_template(
-            content, index, files, subunits_set, cont, matrix, aa, template, interaction_list
-        ):
-            """
-            Processes Arpeggio interaction files, extracting relevant data and updating the matrix.
-            """
-
-            def matches_template(entry, template):
-                """
-                Compara una entrada con un template recursivamente.
-                """
-                if isinstance(template, dict):
-                    if not isinstance(entry, dict):
-                        return False
-                    for key, tmpl_val in template.items():
-                        if key not in entry:
-                            return False
-                        if not matches_template(entry[key], tmpl_val):
-                            return False
-                    return True
-                elif isinstance(template, list):
-                    if template is None:
-                        return True
-                    # Aquí asumimos que entry debe ser un valor único que esté en la lista
-                    return any(value in template for value in entry)
-                elif template is None:
-                    return True
-                else:
-                    return entry == template
-
-            # Filter to obtain entries with the desired contact or type
-            for inter in content:
-                for entry in template:
-                    if matches_template(inter, entry):
-                        contact = set()
-                        if type(inter["type"]) == list:
-                            for conta in inter["type"]:
-                                if conta in interaction_list:
-                                    contact.add(conta)
-                        else:
-                            if inter["type"] in interaction_list:
-                                contact.add(inter["type"])
-                        if type(inter["contact"]) == list:
-                            for conta in inter["contact"]:
-                                if conta in interaction_list:
-                                    contact.add(conta)
-                        else:
-                            if inter["contact"] in interaction_list:
-                                contact.add(inter["contact"])
-                        prot, lig = get_protein_ligand(begin=inter["bgn"], end=inter["end"])
-                        if prot is not None:
-                            residue = prot["label_comp_id"] + " " + str(prot["auth_seq_id"])
-                            prot_atom = prot["auth_atom_id"]
-                            prot_subunit = prot["auth_asym_id"]
-                            ligand_code = lig["label_comp_id"]
-                            lig_atom = lig["auth_atom_id"]
-
-                            subunits_set.add(prot_subunit)
-                            atoms = (
-                                f"{prot_atom}-{lig_atom}"
-                                if protein and ligand
-                                else prot_atom
-                                if protein
-                                else lig_atom
-                                if ligand
-                                else ""
-                            )
-
-                            if subunit:
-                                residue += "-" + prot_subunit
-                            else:
-                                atoms += f"({prot_subunit})"
-
-                            if residue not in aa:
-                                aa[residue] = cont
-                                cont += 1
-                            column = aa[residue]
-
-                            # Ensure matrix size and modify cell
-                            if len(matrix) <= column:
-                                matrix.append([""] * len(files))
-
-                            for interaction in contact:
-                                matrix[column][index] = modify_cell(
-                                    text=matrix[column][index],
-                                    interaction=interaction,
-                                    atoms=atoms,
-                                    interaction_labels=interaction_list,
-                                )
-                        break
-
-            return matrix, ligand_code, aa, cont, subunits_set
-
         # Validate input types
         self._check_variable_types(
             variables=[directory, mode, activity_file, protein, ligand, subunit, template_file, save],
@@ -840,7 +546,17 @@ class IOMixin:
         if activity_file is not None:
             activity_file = os.path.join(self.input_directory, activity_file)
         if template_file is not None:
+            # Explicit override always wins, regardless of the bundled default.
             template_file = os.path.join(self.input_directory, template_file)
+        elif mode == self.ARPEGGIO:
+            # No template_file given: fall back to the template bundled with
+            # the package (constants.DEFAULT_TEMPLATE_FILE), but only if it's
+            # actually present — this default must never be required or fail
+            # silently in an unexpected way; if it's missing, behave exactly
+            # as before (no template restriction at all).
+            bundled_default = os.path.join(os.path.dirname(__file__), DEFAULT_TEMPLATE_FILE)
+            if os.path.isfile(bundled_default):
+                template_file = bundled_default
 
         # Check the directory and return its files
         files = check_directory(directory=directory)
@@ -885,7 +601,7 @@ class IOMixin:
             if os.path.isfile(file_path) and validate_file(file, mode):
                 content = read_file(file_path)
                 if mode == self.ICHEM:
-                    matrix, aa, cont, subunits_set = ichem_analysis(
+                    matrix, aa, cont, subunits_set = parse_ichem_file(
                         content=content,
                         index=index,
                         files=files,
@@ -893,11 +609,14 @@ class IOMixin:
                         cont=cont,
                         matrix=matrix,
                         aa=aa,
+                        protein=protein,
+                        ligand=ligand,
+                        subunit=subunit,
                     )
                     ligands[index] = file.replace(".txt", "").upper()
                 elif mode == self.ARPEGGIO:
                     if template_file is not None:
-                        matrix, ligand_code, aa, cont, subunits_set = arpeggio_analysis_template(
+                        matrix, ligand_code, aa, cont, subunits_set = parse_arpeggio_file_template(
                             content=content,
                             index=index,
                             files=files,
@@ -907,9 +626,13 @@ class IOMixin:
                             aa=aa,
                             template=template,
                             interaction_list=interaction_list,
+                            protein=protein,
+                            ligand=ligand,
+                            subunit=subunit,
+                            amino_acid_codes=self.aa,
                         )
                     else:
-                        matrix, ligand_code, aa, cont, subunits_set = arpeggio_analysis(
+                        matrix, ligand_code, aa, cont, subunits_set = parse_arpeggio_file(
                             content=content,
                             index=index,
                             files=files,
@@ -917,6 +640,10 @@ class IOMixin:
                             cont=cont,
                             matrix=matrix,
                             aa=aa,
+                            protein=protein,
+                            ligand=ligand,
+                            subunit=subunit,
+                            amino_acid_codes=self.aa,
                         )
                     files[index] = file.replace(".json", "").upper()
                     ligands[index] = ligand_code
