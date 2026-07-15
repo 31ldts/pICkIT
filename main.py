@@ -1,89 +1,187 @@
-from analyze_interactions import AnalyzeInteractions as new_api
+"""
+Protein-ligand interaction analysis for the SARS-CoV-2 Mpro dataset (386 complexes).
 
-analyzer = new_api()
+Real usage example of pICkIT: parses the Arpeggio dataset annotated with activity (pIC50)
+and answers 4 independent research questions, each individually toggleable
+in QUESTIONS_TO_RUN below.
+"""
 
-analyzer.change_directory("output", mode=analyzer.OUTPUT)
-analyzer.change_directory("input", mode=analyzer.INPUT)
+from pickit.analyze_interactions import AnalyzeInteractions
 
-analyzer.set_config(heat_max_cols=10)
+# --------------------------------------------------------------------------- #
+# Configuration
+# --------------------------------------------------------------------------- #
 
-data = analyzer.analyze_files(directory="386_arpeggio", mode=analyzer.ARPEGGIO, activity_file='386_Mpro_nc_February_2025.csv', template_file="template.json", save="prueba.xlsx")
+INPUT_DIR = "input"
+OUTPUT_DIR = "output"
+ARPEGGIO_DIR = "386_arpeggio"
+ACTIVITY_FILE = "386_Mpro_nc_February_2025.csv"
+TEMPLATE_FILE = "template.json"
+SUBPOCKETS_FILE = "subpockets.csv"
+RAW_MATRIX_FILE = "prueba.xlsx"
 
-print(analyzer.get_interactions(data))
-tests = [False, True, True, False]
+ACTIVITY_THRESHOLD = 7.4         # minimum pIC50 to consider a compound "active"
+TOP_RESIDUES_THRESHOLD = 200     # minimum number of interactions to consider a residue "top"
 
-#print(analyzer.get_interactions(data))
+# Which questions to run in this pass
+QUESTIONS_TO_RUN = {
+    "q1_most_frequent_interactions": True,
+    "q2_activity_vs_interaction_type": True,
+    "q3_interaction_count_vs_activity": True,
+    "q4_subpocket_occupancy": True,
+}
 
-#data = analyzer.filter_by_chain(data, subpocket_path='subpockets.csv', subpockets=["aux"])
-#data =analyzer.filter_by_interaction(data, [2, 3, 8, 10, 11, 14, 15, 16, 17, 18])
-#data = analyzer.remove_empty_axis(data)
-#analyzer.pie_chart(interaction_data=data, plot_name="Q1 Baseline interaction type distribution", title="Baseline interaction type distribution", axis=analyzer.ROWS)
+
+# --------------------------------------------------------------------------- #
+# Setup
+# --------------------------------------------------------------------------- #
+
+def build_analyzer() -> AnalyzeInteractions:
+    """Creates the analyzer and points it to the input/output directories."""
+    analyzer = AnalyzeInteractions()
+    analyzer.change_directory(OUTPUT_DIR, mode=analyzer.OUTPUT)
+    analyzer.change_directory(INPUT_DIR, mode=analyzer.INPUT)
+    analyzer.set_config(heat_max_cols=10)
+    return analyzer
 
 
-if tests[0]:
-    # ¿Qué interacciones son las mas frecuentes? Me refiero a tipo de interacciones y residuos de la proteína más frecuentes.
-    analyzer.pie_chart(interaction_data=data, plot_name="Q1 Baseline interaction type distribution", title="Baseline interaction type distribution", axis=analyzer.ROWS, save=True)
-    analyzer.bar_chart(interaction_data=data, plot_name="Q1 Baseline residue-interaction profile", title="Baseline residue-interaction profile", axis=analyzer.ROWS, stacked=True, save=True, type_count=False)
-    top_residues = analyzer.sort_matrix(interaction_data=data, thr_interactions=200, axis=analyzer.ROWS)
-    analyzer.pie_chart(interaction_data=top_residues, plot_name="Q1 Top residues interaction type distribution", title="Top residues interaction type distribution", axis=analyzer.ROWS, save=True)
-    analyzer.bar_chart(interaction_data=top_residues, plot_name="Q1 Top residues interaction profile", title="Top residues interaction profile", axis=analyzer.ROWS, stacked=True, save=True, type_count=False)
+def load_data(analyzer: AnalyzeInteractions):
+    """Parses the Arpeggio dataset annotated with activity and saves the raw matrix."""
+    return analyzer.analyze_files(
+        directory=ARPEGGIO_DIR,
+        mode=analyzer.ARPEGGIO,
+        activity_file=ACTIVITY_FILE,
+        template_file=TEMPLATE_FILE,
+        save=RAW_MATRIX_FILE,
+    )
 
-if tests[1]:
-    # ¿Qué interacciones son las más frecuentes en los compuestos más activos (valores de pIC50 más altos)? ¿Hay interacciones que
-    # implican una mayor actividad?
-    #analyzer.heatmap(interaction_data=data, title="", mode=analyzer.MAXIMUM)
-    top_ipc50 = analyzer.sort_matrix(interaction_data=data, thr_activity=7.4, axis=analyzer.ROWS)
-    #analyzer.heatmap(interaction_data=top_ipc50, title="Maximum activity interaction profile (Top iPC50)", mode=analyzer.MAXIMUM, save=False)
-    top_ipc50 = analyzer.remove_empty_axis(interaction_data=top_ipc50)
-    analyzer.heatmap(interaction_data=top_ipc50, title="", mode=analyzer.MAXIMUM, save=False)
 
-    #analyzer.heatmap(interaction_data=data, title="", mode=analyzer.MEAN)
-    mean_ipc50 = analyzer.sort_matrix(interaction_data=data, thr_activity=7.4, axis=analyzer.ROWS)
-    #analyzer.heatmap(interaction_data=mean_ipc50, title="Mean activity interaction profile (Top iPC50)", mode=analyzer.MEAN, save=False)
-    mean_ipc50 = analyzer.remove_empty_axis(interaction_data=mean_ipc50)
-    analyzer.heatmap(interaction_data=mean_ipc50, title="", mode=analyzer.MEAN, save=False)
+# --------------------------------------------------------------------------- #
+# Q1 — Which interactions and residues are most frequent?
+# --------------------------------------------------------------------------- #
 
-    #analyzer.heatmap(interaction_data=data, title="", mode=analyzer.COUNT)
-    count_ipc50 = analyzer.sort_matrix(interaction_data=data, thr_activity=7.4, axis=analyzer.ROWS)
-    #analyzer.heatmap(interaction_data=count_ipc50, title="Count interaction profile (Top iPC50)", mode=analyzer.COUNT, save=False)
-    count_ipc50 = analyzer.remove_empty_axis(interaction_data=count_ipc50)
-    analyzer.heatmap(interaction_data=count_ipc50, title="", mode=analyzer.COUNT, save=False)
+def q1_most_frequent_interactions(analyzer: AnalyzeInteractions, data) -> None:
+    analyzer.pie_chart(
+        interaction_data=data,
+        plot_name="Q1 Baseline interaction type distribution",
+        title="Baseline interaction type distribution",
+        axis=analyzer.ROWS,
+        save=True,
+    )
+    analyzer.bar_chart(
+        interaction_data=data,
+        plot_name="Q1 Baseline residue-interaction profile",
+        title="Baseline residue-interaction profile",
+        axis=analyzer.ROWS,
+        stacked=True,
+        save=True,
+        type_count=False,
+    )
 
-if tests[2]:
-    # En este sentido, también se podría analizar el número total de interacciones y si hay una correlación entre el número de 
-    # interacciones (el número total y el número total por cada tipo de interacción) y la actividad.
-    analyzer.pie_chart(interaction_data=data, plot_name="Q3 Baseline interaction type distribution", title="Baseline interaction type distribution", axis=analyzer.ROWS, save=False)
-    activity = analyzer.sort_matrix(interaction_data=data, thr_activity=7.4)
-    analyzer.pie_chart(interaction_data=activity, plot_name="Q3-InteMasFrecPie(7_4)", axis=analyzer.ROWS, save=False)
+    top_residues = analyzer.sort_matrix(
+        interaction_data=data, thr_interactions=TOP_RESIDUES_THRESHOLD, axis=analyzer.ROWS
+    )
+    analyzer.pie_chart(
+        interaction_data=top_residues,
+        plot_name="Q1 Top residues interaction type distribution",
+        title="Top residues interaction type distribution",
+        axis=analyzer.ROWS,
+        save=True,
+    )
+    analyzer.bar_chart(
+        interaction_data=top_residues,
+        plot_name="Q1 Top residues interaction profile",
+        title="Top residues interaction profile",
+        axis=analyzer.ROWS,
+        stacked=True,
+        save=True,
+        type_count=False,
+    )
 
-if tests[3]:
-    # Como hay algunos compuesto pequeños (fragmentos), se podría utilizar tu programa para identificar que subsites de la Mpro 
-    # están ocupando cada uno de los compuestos. ¿Tienes las definiciones de los subsites de la Mpro, verdad? Aunque no sea una 
-    # salida tal cual de tu programa, si que creo que sería fácil hacer este análisis a partir de la salida actual de tu programa. 
-    # La identificación de los subsites que ocupa cada uno de los 386 inhibidores sería interesante. También un análisis de que 
-    # subsite se ocupa más, ....
-    sub1 = analyzer.filter_by_chain(interaction_data=data, subpocket_path="subpockets.csv", subpockets=["S1'"])
-    sub1 = analyzer.remove_empty_axis(interaction_data=sub1, save="Q4 S1'.xlsx")
-    sub2 = analyzer.filter_by_chain(interaction_data=data, subpocket_path="subpockets.csv", subpockets=["S1"])
-    sub2 = analyzer.remove_empty_axis(interaction_data=sub2, save="Q4 S1.xlsx")
-    sub3 = analyzer.filter_by_chain(interaction_data=data, subpocket_path="subpockets.csv", subpockets=["S2"])
-    sub3 = analyzer.remove_empty_axis(interaction_data=sub3, save="Q4 S2.xlsx")
-    sub4 = analyzer.filter_by_chain(interaction_data=data, subpocket_path="subpockets.csv", subpockets=["S4"])
-    sub4 = analyzer.remove_empty_axis(interaction_data=sub4, save="Q4 S4.xlsx")
-    analyzer.heatmap(interaction_data=sub4, title="A", mode=analyzer.MAXIMUM, save=False)
-    #analyzer.heatmap(interaction_data=sub2, title="Q4 Maximum activity interaction profile (S1)", mode=analyzer.MAXIMUM, save=False)
-    #analyzer.heatmap(interaction_data=sub3, title="Q4 Maximum activity interaction profile (S2)", mode=analyzer.MAXIMUM, save=False)
-    #analyzer.heatmap(interaction_data=sub4, title="Q4 Maximum activity interaction profile (S4)", mode=analyzer.MAXIMUM, save=False)
-    analyzer.heatmap(interaction_data=sub4, title="B", mode=analyzer.MEAN, save=False)
-    #analyzer.heatmap(interaction_data=sub2, title="Q4 Mean activity interaction profile (S1)", mode=analyzer.MEAN, save=False)
-    #analyzer.heatmap(interaction_data=sub3, title="Q4 Mean activity interaction profile (S2)", mode=analyzer.MEAN, save=False)
-    #analyzer.heatmap(interaction_data=sub4, title="Q4 Mean activity interaction profile (S4)", mode=analyzer.MEAN, save=False)
-    analyzer.heatmap(interaction_data=sub4, title="C", mode=analyzer.COUNT, save=False)
-    #analyzer.heatmap(interaction_data=sub2, title="Q4 Count activity interaction profile (S1)", mode=analyzer.COUNT, save=False)
-    #analyzer.heatmap(interaction_data=sub3, title="Q4 Count activity interaction profile (S2)", mode=analyzer.COUNT, save=False)
-    #analyzer.heatmap(interaction_data=sub4, title="Q4 Count activity interaction profile (S4)", mode=analyzer.COUNT, save=False)
-    analyzer.pie_chart(interaction_data=sub4, plot_name="Q4 Baseline interaction type distribution (S1')", title="Baseline interaction type distribution (S1')", axis=analyzer.ROWS, save=True)
-    #analyzer.pie_chart(interaction_data=sub2, plot_name="Q4 Baseline interaction type distribution (S1)", title="Baseline interaction type distribution (S1)", axis=analyzer.ROWS, save=True)
-    #analyzer.pie_chart(interaction_data=sub3, plot_name="Q4 Baseline interaction type distribution (S2)", title="Baseline interaction type distribution (S2)", axis=analyzer.ROWS, save=True)
-    #analyzer.pie_chart(interaction_data=sub4, plot_name="Q4 Baseline interaction type distribution (S4)", title="Baseline interaction type distribution (S4)", axis=analyzer.ROWS, save=True)
-    
+
+# --------------------------------------------------------------------------- #
+# Q2 — Which interactions predominate in the most active compounds (high pIC50)?
+# --------------------------------------------------------------------------- #
+
+def q2_activity_vs_interaction_type(analyzer: AnalyzeInteractions, data) -> None:
+    heatmap_modes = (analyzer.MAXIMUM, analyzer.MEAN, analyzer.COUNT)
+    for mode in heatmap_modes:
+        top = analyzer.sort_matrix(interaction_data=data, thr_activity=ACTIVITY_THRESHOLD, axis=analyzer.ROWS)
+        top = analyzer.remove_empty_axis(interaction_data=top)
+        analyzer.heatmap(interaction_data=top, title="", mode=mode, save=False)
+
+
+# --------------------------------------------------------------------------- #
+# Q3 — Is there a correlation between the number of interactions (total and by type) and activity?
+# --------------------------------------------------------------------------- #
+
+def q3_interaction_count_vs_activity(analyzer: AnalyzeInteractions, data) -> None:
+    analyzer.pie_chart(
+        interaction_data=data,
+        plot_name="Q3 Baseline interaction type distribution",
+        title="Baseline interaction type distribution",
+        axis=analyzer.ROWS,
+        save=False,
+    )
+    active_compounds = analyzer.sort_matrix(interaction_data=data, thr_activity=ACTIVITY_THRESHOLD)
+    analyzer.pie_chart(
+        interaction_data=active_compounds,
+        plot_name=f"Q3-InteMasFrecPie({ACTIVITY_THRESHOLD})",
+        axis=analyzer.ROWS,
+        save=False,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Q4 — Which Mpro subsites does each compound occupy?
+# --------------------------------------------------------------------------- #
+
+def q4_subpocket_occupancy(analyzer: AnalyzeInteractions, data) -> None:
+    subpockets = ["S1'", "S1", "S2", "S4"]
+    filtered_by_subpocket = {}
+
+    for subpocket in subpockets:
+        subset = analyzer.filter_by_residue(
+            interaction_data=data, subpocket_path=SUBPOCKETS_FILE, subpockets=[subpocket]
+        )
+        safe_name = subpocket.replace("'", "")
+        subset = analyzer.remove_empty_axis(interaction_data=subset, save=f"Q4 {safe_name}.xlsx")
+        filtered_by_subpocket[subpocket] = subset
+
+    subpocket_to_detail = filtered_by_subpocket["S4"]
+
+    analyzer.heatmap(interaction_data=subpocket_to_detail, title="A", mode=analyzer.MAXIMUM, save=False)
+    analyzer.heatmap(interaction_data=subpocket_to_detail, title="B", mode=analyzer.MEAN, save=False)
+    analyzer.heatmap(interaction_data=subpocket_to_detail, title="C", mode=analyzer.COUNT, save=False)
+
+    analyzer.pie_chart(
+        interaction_data=subpocket_to_detail,
+        plot_name="Q4 Baseline interaction type distribution (S1')",
+        title="Baseline interaction type distribution (S1')",
+        axis=analyzer.ROWS,
+        save=True,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Entry point
+# --------------------------------------------------------------------------- #
+
+def main() -> None:
+    analyzer = build_analyzer()
+    data = load_data(analyzer)
+
+    print(analyzer.get_interactions(data))
+
+    if QUESTIONS_TO_RUN["q1_most_frequent_interactions"]:
+        q1_most_frequent_interactions(analyzer, data)
+    if QUESTIONS_TO_RUN["q2_activity_vs_interaction_type"]:
+        q2_activity_vs_interaction_type(analyzer, data)
+    if QUESTIONS_TO_RUN["q3_interaction_count_vs_activity"]:
+        q3_interaction_count_vs_activity(analyzer, data)
+    if QUESTIONS_TO_RUN["q4_subpocket_occupancy"]:
+        q4_subpocket_occupancy(analyzer, data)
+
+
+if __name__ == "__main__":
+    main()

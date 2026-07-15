@@ -1,20 +1,6 @@
 .vscode/
-/output/
-tests/
-tests_support_files/
-diferencias.py
-diferencias/
-/input/
-docs/
-otros/
-ejemplos.py
-eliminar.py
-requirements.txt
-tests.py
-version_check.py
-_comparison.txt
-version_output/
-main.py
+
+plan-accion-modularizacion-pickit.md
 
 
 # Byte-compiled / optimized / DLL files

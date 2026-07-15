@@ -103,7 +103,6 @@ data = analyzer.analyze_files(
     directory="my_complexes",
     mode=analyzer.ARPEGGIO,
     activity_file="activities.csv",
-    template_file="template.json",
     save="interaction_matrix.xlsx",
 )
 
@@ -114,6 +113,8 @@ print(analyzer.get_interactions(data))
 analyzer.heatmap(interaction_data=data, title="Interaction counts", mode=analyzer.COUNT)
 analyzer.pie_chart(interaction_data=data, plot_name="interaction_types", axis=analyzer.ROWS)
 ```
+
+> **Note:** `analyze_files` restricts interactions to the bundled `template.json` by default for Arpeggio mode — pass your own `template_file=` to use a different template instead. There is currently no flag to explicitly disable templating; an unrestricted parse only happens automatically if the bundled `template.json` is missing from the installed package.
 
 A full walkthrough of every method, with runnable examples and sample input/output files, is available in [`pICkIT-notebook.ipynb`](./pICkIT-notebook.ipynb) (also runnable directly [in Colab](https://colab.research.google.com/github/31ldts/pICkIT/blob/main/pICkIT-notebook.ipynb)).
 
@@ -143,7 +144,7 @@ A full walkthrough of every method, with runnable examples and sample input/outp
 | `pie_chart(interaction_data, plot_name, axis, ...)` | Plot the distribution of interaction types |
 | `save_interaction_data(interaction_data, filename)` | Export the matrix and its metadata to a formatted `.xlsx` file |
 
-Every public method is fully documented with docstrings (arguments, return values, and exceptions raised) — see [`pickit/analyze_interactions.py`](./pickit/analyze_interactions.py) or the notebook for details.
+Every public method is fully documented with docstrings (arguments, return values, and exceptions raised). The implementation is split across [`src/pickit/`](./src/pickit/) (see [Repository contents](#repository-contents) above for the breakdown by module) — browse the generated API reference (`mkdocs serve`) or the notebook for details. The stable import path, `from pickit.analyze_interactions import AnalyzeInteractions`, is unaffected by this internal split.
 
 ## Example: analyzing SARS-CoV-2 Mpro inhibitors
 
@@ -160,7 +161,25 @@ See [`main.py`](./main.py) for a complete real-world analysis script covering th
 
 ```
 .
-├── analyze_interactions.py     # Core library: AnalyzeInteractions and InteractionData classes
+├── src/pickit/                     # Core library (modularized, see below)
+│   ├── analyzer.py                     # AnalyzeInteractions: composes all mixins below
+│   ├── analyze_interactions.py         # Backward-compatibility shim (re-exports everything
+│   │                                    # under the same names/import path as before)
+│   ├── models.py                       # InteractionData
+│   ├── constants.py                    # Global constants (interaction labels, colors, delimiters...)
+│   ├── exceptions.py                   # Custom exceptions
+│   ├── _validation.py                  # ValidationMixin: shared input-validation helpers
+│   ├── filter_mixin.py                 # FilterMixin: filter/sort/reshape the interaction matrix
+│   ├── export_mixin.py                 # ExportMixin: DataFrame / Excel export
+│   ├── plot_mixin.py                   # PlotMixin: heatmap / bar_chart / pie_chart
+│   ├── io_mixin.py                     # IOMixin: directory/config management, analyze_files
+│   ├── parsers/                        # File-format parsers used by analyze_files
+│   │   ├── arpeggio.py                     # Arpeggio parser (plain + template-restricted)
+│   │   ├── ichem.py                        # IChem parser
+│   │   └── common.py                       # Helpers shared by both parsers
+│   └── template.json                   # Default interaction template bundled with the package
+├── tests/                          # Test suite (pytest), one file per module above
+├── docs/                           # mkdocs + mkdocstrings API reference (`mkdocs serve` to browse)
 ├── notebook-materials/             # Sample input/output files used by the notebook
 ├── pICkIT-notebook.ipynb           # Interactive tutorial covering the full API (runnable in Colab)
 ├── main.py                         # Example analysis script (SARS-CoV-2 Mpro inhibitor dataset)
@@ -168,6 +187,8 @@ See [`main.py`](./main.py) for a complete real-world analysis script covering th
 ├── LICENSE.txt                     # License file
 └── README.md                       # This file
 ```
+
+`AnalyzeInteractions` is composed from five mixins (`ValidationMixin`, `FilterMixin`, `ExportMixin`, `PlotMixin`, `IOMixin`), each covering one concern — see `docs/` for the full breakdown and the reasoning behind it.
 
 ## Citing pICkIT
 

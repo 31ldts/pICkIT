@@ -1,0 +1,41 @@
+site_name: pICkIT
+site_description: Automated analysis of protein-ligand interactions
+repo_url: https://github.com/31ldts/pICkIT
+
+theme:
+  name: material
+  palette:
+    primary: teal
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            show_source: true
+            show_root_heading: true
+            docstring_style: google
+            merge_init_into_class: true
+            show_if_no_docstring: false
+
+nav:
+  - Home: index.md
+  - API reference:
+      - AnalyzeInteractions: api/analyzer.md
+      - InteractionData: api/models.md
+      - Exceptions: api/exceptions.md
+      - Constants: api/constants.md
+      - Mixins:
+          - ValidationMixin: api/validation.md
+          - FilterMixin: api/filter_mixin.md
+          - ExportMixin: api/export_mixin.md
+          - PlotMixin: api/plot_mixin.md
+          - IOMixin: api/io_mixin.md
+      - Parsers:
+          - Arpeggio: api/parsers_arpeggio.md
+          - IChem: api/parsers_ichem.md
+          - Common: api/parsers_common.md
+  - Decisions:
+      - Data structure: decisions/data-structure.md
