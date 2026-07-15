@@ -1,0 +1,26 @@
+[
+  {
+    "bgn": {"auth_asym_id": "A", "auth_atom_id": "CA", "auth_seq_id": 41, "label_comp_id": "HIS", "label_comp_type": "P", "pdbx_PDB_ins_code": " "},
+    "contact": ["hbond"],
+    "distance": 3.1,
+    "end": {"auth_asym_id": "A", "auth_atom_id": "O1", "auth_seq_id": 1, "label_comp_id": "LIG", "label_comp_type": "N", "pdbx_PDB_ins_code": " "},
+    "interacting_entities": "INTER",
+    "type": "atom-atom"
+  },
+  {
+    "bgn": {"auth_asym_id": "A", "auth_atom_id": "CB", "auth_seq_id": 142, "label_comp_id": "ASN", "label_comp_type": "P", "pdbx_PDB_ins_code": " "},
+    "contact": ["hydrophobic"],
+    "distance": 4.0,
+    "end": {"auth_asym_id": "A", "auth_atom_id": "C2", "auth_seq_id": 1, "label_comp_id": "LIG", "label_comp_type": "N", "pdbx_PDB_ins_code": " "},
+    "interacting_entities": "INTER",
+    "type": "atom-atom"
+  },
+  {
+    "bgn": {"auth_asym_id": "A", "auth_atom_id": "CG", "auth_seq_id": 41, "label_comp_id": "HIS", "label_comp_type": "P", "pdbx_PDB_ins_code": " "},
+    "contact": ["proximal"],
+    "distance": 5.5,
+    "end": {"auth_asym_id": "A", "auth_atom_id": "CB", "auth_seq_id": 187, "label_comp_id": "ASP", "label_comp_type": "P", "pdbx_PDB_ins_code": " "},
+    "interacting_entities": "INTRA_NON_SELECTION",
+    "type": "atom-atom"
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "bgn": {"auth_asym_id": "A", "auth_atom_id": "CA", "auth_seq_id": 41, "label_comp_id": "HIS", "label_comp_type": "P", "pdbx_PDB_ins_code": " "},
+    "contact": ["hbond", "polar"],
+    "distance": 3.0,
+    "end": {"auth_asym_id": "A", "auth_atom_id": "N1", "auth_seq_id": 1, "label_comp_id": "LG2", "label_comp_type": "N", "pdbx_PDB_ins_code": " "},
+    "interacting_entities": "INTER",
+    "type": "atom-atom"
+  },
+  {
+    "bgn": {"auth_asym_id": "A", "auth_atom_id": "OD1", "auth_seq_id": 166, "label_comp_id": "GLU", "label_comp_type": "P", "pdbx_PDB_ins_code": " "},
+    "contact": ["ionic"],
+    "distance": 3.5,
+    "end": {"auth_asym_id": "A", "auth_atom_id": "N2", "auth_seq_id": 1, "label_comp_id": "LG2", "label_comp_type": "N", "pdbx_PDB_ins_code": " "},
+    "interacting_entities": "INTER",
+    "type": "atom-atom"
+  }
+]
