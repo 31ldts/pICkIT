@@ -1,0 +1,3 @@
+# InteractionData
+
+::: pickit.models.InteractionData
