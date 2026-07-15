@@ -693,7 +693,7 @@ class FilterMixin:
             thr_interactions (int, optional): Minimum number of interactions required to retain a row/column.
             thr_activity (float, optional): Minimum activity value required to retain a row/column.
             selected_items (int, optional): Number of top rows/columns to keep based on interaction count.
-            count (bool, optional): If True, returns the count of interactions instead of modifying the matrix.
+            _count (bool, optional): If True, returns the count of interactions instead of modifying the matrix.
             residue_chain (bool, optional): If True, sorts the resulting matrix based on residue order in the chain.
             save (str, optional): File path to save the resulting matrix. Defaults to None.
 

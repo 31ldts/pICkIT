@@ -46,11 +46,11 @@ class InteractionData:
         self.subunit = subunit
         self.subunits_set = subunits_set
 
-    def compare(self, other):
+    def compare(self, other: object):
         """Compare this InteractionData against another object attribute by attribute.
 
         Args:
-            other: Any object. Doesn't need to be an InteractionData instance,
+            other (object): Any object. Doesn't need to be an InteractionData instance,
                 only to expose the same attributes (duck typing, matching the
                 original implementation's intent).
 
