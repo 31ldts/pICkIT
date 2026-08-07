@@ -372,13 +372,20 @@ class FilterMixin:
             """
             Extrae residuos del fichero de subpockets, devolviendo una lista de diccionarios
             con la información de residuo, átomo y cadena.
+
+            Formato esperado del fichero (una fila por subpocket): el nombre del
+            subpocket en la primera columna y los residuos que lo componen en las
+            columnas siguientes, separados por comas (p. ej. "S1,ARG32,MET54").
+            Los espacios en blanco alrededor de cada valor se ignoran.
             """
             residues = []
             with open(subpocket_file_path, mode="r", encoding="utf-8") as csv_file:
                 reader = csv.reader(csv_file)
                 for row in reader:
-                    if row[0] in subpocket_list:
-                        items = [item.strip() for item in row[1].split(",")]
+                    if not row:
+                        continue
+                    if row[0].strip() in subpocket_list:
+                        items = [item.strip() for item in row[1:]]
                         for item in items:
                             if not item:
                                 continue

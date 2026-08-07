@@ -70,7 +70,9 @@ class PlotMixin:
         2) subsite_color_map : maps "S1" → "#RRGGBB"
 
         Rules:
-        - CSV format: Subsite, "GLU166, SER144<main>, VAL42<side>, ..."
+        - CSV format: one subpocket per row, e.g. S1,GLU166,SER144<main>,VAL42<side>
+          (subpocket name in the first column, residues in the remaining columns;
+          surrounding whitespace in any field is ignored)
         - Removes <main> or <side>
         - Converts "GLU166" → "GLU 166"
         - If fewer than 2 subsites exist → return empty dicts
@@ -92,7 +94,7 @@ class PlotMixin:
                         continue
 
                     subsite = row[0].strip()
-                    residues_raw = row[1].split(",")
+                    residues_raw = row[1:]
 
                     cleaned_res = []
                     for item in residues_raw:
