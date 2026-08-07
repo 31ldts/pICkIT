@@ -114,7 +114,7 @@ analyzer.heatmap(interaction_data=data, title="Interaction counts", mode=analyze
 analyzer.pie_chart(interaction_data=data, plot_name="interaction_types", axis=analyzer.ROWS)
 ```
 
-> **Note:** `analyze_files` restricts interactions to the bundled `template.json` by default for Arpeggio mode — pass your own `template_file=` to use a different template instead. There is currently no flag to explicitly disable templating; an unrestricted parse only happens automatically if the bundled `template.json` is missing from the installed package.
+> **Note:** `analyze_files` restricts interactions to the bundled `template.json` by default. This default template lives inside the installed package itself (`src/pickit/template.json`). If you pass your own `template_file=`, that path is resolved relative to the input directory you set with `change_directory(path, mode=analyzer.INPUT)` — just like `activity_file` and `subpocket_path`.
 
 A full walkthrough of every method, with runnable examples and sample input/output files, is available in [`pICkIT-notebook.ipynb`](./pICkIT-notebook.ipynb) (also runnable directly [in Colab](https://colab.research.google.com/github/31ldts/pICkIT/blob/main/pICkIT-notebook.ipynb)).
 
