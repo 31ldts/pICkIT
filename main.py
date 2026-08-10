@@ -41,7 +41,7 @@ def build_analyzer() -> AnalyzeInteractions:
     analyzer = AnalyzeInteractions()
     analyzer.change_directory(OUTPUT_DIR, mode=analyzer.OUTPUT)
     analyzer.change_directory(INPUT_DIR, mode=analyzer.INPUT)
-    analyzer.set_config(heat_max_cols=10)
+    analyzer.set_config(heat_max_cols=40)
     return analyzer
 
 
@@ -105,10 +105,10 @@ def q1_most_frequent_interactions(analyzer: AnalyzeInteractions, data) -> None:
 
 def q2_activity_vs_interaction_type(analyzer: AnalyzeInteractions, data) -> None:
     heatmap_modes = (analyzer.MAXIMUM, analyzer.MEAN, analyzer.COUNT)
+    top = analyzer.sort_matrix(interaction_data=data, thr_activity=ACTIVITY_THRESHOLD, axis=analyzer.ROWS)
+    top = analyzer.remove_empty_axis(interaction_data=top)
     for mode in heatmap_modes:
-        top = analyzer.sort_matrix(interaction_data=data, thr_activity=ACTIVITY_THRESHOLD, axis=analyzer.ROWS)
-        top = analyzer.remove_empty_axis(interaction_data=top)
-        analyzer.heatmap(interaction_data=top, title="", mode=mode, save=False)
+        analyzer.heatmap(interaction_data=top, title=f"Q2 Most active compounds {mode} heatmap", mode=mode, save=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -121,14 +121,15 @@ def q3_interaction_count_vs_activity(analyzer: AnalyzeInteractions, data) -> Non
         plot_name="Q3 Baseline interaction type distribution",
         title="Baseline interaction type distribution",
         axis=analyzer.ROWS,
-        save=False,
+        save=True,
     )
     active_compounds = analyzer.sort_matrix(interaction_data=data, thr_activity=ACTIVITY_THRESHOLD)
     analyzer.pie_chart(
         interaction_data=active_compounds,
-        plot_name=f"Q3-InteMasFrecPie({ACTIVITY_THRESHOLD})",
+        plot_name=f"Q3 Most active interactions pie chart ({ACTIVITY_THRESHOLD})",
+        title=f"Most active interactions pie chart ({ACTIVITY_THRESHOLD})",
         axis=analyzer.ROWS,
-        save=False,
+        save=True,
     )
 
 
@@ -144,20 +145,19 @@ def q4_subpocket_occupancy(analyzer: AnalyzeInteractions, data) -> None:
         subset = analyzer.filter_by_residue(
             interaction_data=data, subpocket_path=SUBPOCKETS_FILE, subpockets=[subpocket]
         )
-        safe_name = subpocket.replace("'", "")
-        subset = analyzer.remove_empty_axis(interaction_data=subset, save=f"Q4 {safe_name}.xlsx")
+        subset = analyzer.remove_empty_axis(interaction_data=subset, save=f"Q4 {subpocket}.xlsx")
         filtered_by_subpocket[subpocket] = subset
 
     subpocket_to_detail = filtered_by_subpocket["S4"]
 
-    analyzer.heatmap(interaction_data=subpocket_to_detail, title="A", mode=analyzer.MAXIMUM, save=False)
-    analyzer.heatmap(interaction_data=subpocket_to_detail, title="B", mode=analyzer.MEAN, save=False)
-    analyzer.heatmap(interaction_data=subpocket_to_detail, title="C", mode=analyzer.COUNT, save=False)
+    analyzer.heatmap(interaction_data=subpocket_to_detail, title="Q4 Maximum Interaction Heatmap (S4)", mode=analyzer.MAXIMUM, save=True)
+    analyzer.heatmap(interaction_data=subpocket_to_detail, title="Q4 Mean Interaction Heatmap (S4)", mode=analyzer.MEAN, save=True)
+    analyzer.heatmap(interaction_data=subpocket_to_detail, title="Q4 Count Interaction Heatmap (S4)", mode=analyzer.COUNT, save=True)
 
     analyzer.pie_chart(
         interaction_data=subpocket_to_detail,
-        plot_name="Q4 Baseline interaction type distribution (S1')",
-        title="Baseline interaction type distribution (S1')",
+        plot_name="Q4 Baseline interaction type distribution (S4)",
+        title="Baseline interaction type distribution (S4)",
         axis=analyzer.ROWS,
         save=True,
     )
