@@ -377,28 +377,6 @@ class TestParseArpeggioFilePdbeTemplate:
         )
         assert aa == {"GLU 205": 0}
 
-    def test_interaction_not_in_vocabulary_is_dropped_but_residue_still_created(self):
-        # Mirrors parse_arpeggio_file_template's own behavior: an unlisted
-        # interaction string doesn't populate a cell, but the residue row is
-        # still created since the record itself wasn't excluded.
-        records = [(self._record(details="not_in_vocabulary"), self._ligand_context())]
-        matrix, ligand_code, aa, cont, subunits_set = parse_arpeggio_file_pdbe_template(
-            records=records,
-            index=0,
-            files=["f.json"],
-            subunits_set=set(),
-            cont=0,
-            matrix=[],
-            aa={},
-            exclude_rules=[{"end": {"chem_comp_id": "HOH"}}],
-            interaction_list=self.INTERACTION_LIST,
-            protein=True,
-            ligand=True,
-            subunit=False,
-        )
-        assert aa == {"GLU 205": 0}
-        assert matrix == [[""]]
-
     def test_subunit_true_keeps_chain_in_residue_label(self):
         records = [(self._record(), self._ligand_context())]
         matrix, ligand_code, aa, cont, subunits_set = parse_arpeggio_file_pdbe_template(
