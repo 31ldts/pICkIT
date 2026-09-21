@@ -303,6 +303,9 @@ def parse_arpeggio_file_pdbe_template(
         elif itype in interaction_list:
             contact.add(itype)
 
+        if len(contact) == 0:
+            continue
+        
         prot_end = record["end"]
         residue = f'{prot_end["chem_comp_id"]} {prot_end["author_residue_number"]}'
         prot_atom = ",".join(prot_end.get("atom_names", []))
