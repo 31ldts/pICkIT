@@ -25,6 +25,9 @@ import csv
 import json
 import os
 import re
+from pathlib import Path as FsPath
+
+from click import Path
 
 from .constants import (
     AMINO_ACID_CODES,
@@ -487,17 +490,26 @@ class IOMixin:
             Returns:
                 bool: True if the filename is valid, False otherwise.
             """
-            if filename.count(" ") != 0:
+            if any(part.startswith(".") for part in FsPath(filename).parts):
+                return False
+            if " " in filename:
                 print(f"Warning: The filename '{filename}' contains spaces.")
                 return False
-            if mode == self.ICHEM:
-                if filename.split(".")[-1] != "txt":
-                    print(f"Warning: The filename '{filename}' is not a valid IChem file.")
-                    return False
+            if mode == self.ICHEM and not filename.endswith(".txt"):
+                print(f"Warning: The filename '{filename}' is not a valid IChem file.")
+                return False
             elif mode == self.ARPEGGIO:
-                if filename.split(".")[-1] != "json":
+                if not filename.endswith(".json"):
                     print(f"Warning: The filename '{filename}' is not a valid Arpeggio file.")
                     return False
+                #try:
+                #    with open(filename) as fh:
+                #        data = json.load(fh)
+                #    if "nbformat" in data:  # it is a notebook
+                #        print(f"Warning: '{filename}' is a Jupyter notebook, skipping.")
+                #        return False
+                #except json.JSONDecodeError:
+                #    return False
             return True
 
         def check_directory(directory):
