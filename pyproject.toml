@@ -23,6 +23,7 @@ dependencies = [
     "seaborn",
     "mplcursors",
     "openpyxl",
+    "click",
 ]
 
 [project.optional-dependencies]
