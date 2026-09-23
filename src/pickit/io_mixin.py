@@ -490,8 +490,6 @@ class IOMixin:
             Returns:
                 bool: True if the filename is valid, False otherwise.
             """
-            if any(part.startswith(".") for part in FsPath(filename).parts):
-                return False
             if " " in filename:
                 print(f"Warning: The filename '{filename}' contains spaces.")
                 return False
@@ -646,6 +644,9 @@ class IOMixin:
             # rather than a nested record.
             with open(template_file) as f:
                 interaction_list = json.load(f)
+
+        # Filter out hidden files (those starting with a dot) from the list of files
+        files = [file for file in files if not any(part.startswith(".") for part in FsPath(file).parts)]
 
         # Analyze each file in the directory
         for index, file in enumerate(files):
