@@ -586,7 +586,6 @@ class IOMixin:
         else:
             self.set_config(mode=mode)
 
-        ligands = [None] * len(files)
         matrix = []
         aa = {}
         cont = 0
@@ -647,6 +646,7 @@ class IOMixin:
 
         # Filter out hidden files (those starting with a dot) from the list of files
         files = [file for file in files if not any(part.startswith(".") for part in FsPath(file).parts)]
+        ligands = [None] * len(files)
 
         # Analyze each file in the directory
         for index, file in enumerate(files):
