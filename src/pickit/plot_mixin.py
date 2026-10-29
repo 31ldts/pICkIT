@@ -19,6 +19,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import colormaps
 from matplotlib import pyplot as plt
+from matplotlib.backend_bases import FigureCanvasBase
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 
@@ -54,12 +55,42 @@ class PlotMixin:
         transposed_data = self.transpose_matrix(data, _pie=True)
         return colors, data, indices, transposed_data
 
-    def _plot_end(self, save, plt, fig, plot_name):
+    @staticmethod
+    def _normalize_file_format(file_format: str = "png") -> str:
+        """
+        Normalize and validate the file extension used when saving a plot.
+
+        Accepts the extension with or without a leading dot and in any case
+        (``"pdf"``, ``".PDF"``, ``"Svg"``...). Vector formats such as ``pdf``,
+        ``svg`` or ``eps`` keep their quality when the image is enlarged.
+
+        Args:
+            file_format (str): Desired extension. Defaults to ``"png"``.
+
+        Returns:
+            str: The normalized extension, lowercase and without a leading dot.
+
+        Raises:
+            ValueError: If ``file_format`` is empty or not supported by Matplotlib.
+        """
+        if file_format is None:
+            return "png"
+        if not isinstance(file_format, str):
+            raise ValueError(f"file_format must be a string, got {type(file_format).__name__}.")
+
+        fmt = file_format.strip().lstrip(".").lower()
+        supported = FigureCanvasBase.get_supported_filetypes()
+        if not fmt or fmt not in supported:
+            raise ValueError(f"Unsupported file format '{file_format}'. Supported formats: {', '.join(sorted(supported))}.")
+        return fmt
+
+    def _plot_end(self, save, plt, fig, plot_name, file_format="png"):
         # Show or save the plot
         if not save:
             plt.show()
         else:
-            plt.savefig(os.path.join(self.saving_directory, plot_name + ".png"))
+            file_format = self._normalize_file_format(file_format)
+            plt.savefig(os.path.join(self.saving_directory, f"{plot_name}.{file_format}"))
             plt.close(fig)  # Close the figure after saving to avoid display overlap
 
     def _load_subsite_color_maps(self, csv_path: str, subsite_colors: list[str] = None):
@@ -226,6 +257,7 @@ class PlotMixin:
         remove_empty: bool = False,
         split_by_atom: bool = False,
         save: bool = False,
+        file_format: str = "png",
     ):
         """
         Generates a heatmap based on interaction data using different processing modes.
@@ -251,6 +283,9 @@ class PlotMixin:
             max_v (int, optional): Maximum value for the heatmap color scale. Defaults to None (auto-scaling).
             case (str, optional): Case style for the heatmap labels. Can be 'upper', 'lower', or None. Defaults to None.
             save (bool, optional): If True, saves the heatmap instead of displaying it. Defaults to False.
+            file_format (str, optional): File extension used when ``save=True`` (e.g. ``"png"``, ``"pdf"``,
+               ``"svg"``). Accepted with or without leading dot. Vector formats like ``"pdf"`` or ``"svg"``
+               keep their quality when enlarged. Defaults to ``"png"``.
             subpocket_path (str, optional): Path to a CSV defining subpockets and their residues.
                Used to color residue labels by subsite. If the file defines fewer than two
                subsites, coloring is disabled.
@@ -264,7 +299,10 @@ class PlotMixin:
         Raises:
             InvalidModeException: If an unsupported processing mode is provided.
             HeatmapActivityException: If the matrix contains invalid or negative activity values.
+            ValueError: If ``file_format`` is not a format supported by Matplotlib.
         """
+        file_format = self._normalize_file_format(file_format)
+
         residue_color_map = None
         subsite_color_map = None
 
@@ -408,7 +446,9 @@ class PlotMixin:
             transposed = self.transpose_matrix(interaction_data=matrix)
             return nan_template, transposed
 
-        def plot_heatmap(self, data, title, x_label, y_label, mode, min_v, max_v, save, case, remove_empty):
+        def plot_heatmap(
+            self, data, title, x_label, y_label, mode, min_v, max_v, save, case, remove_empty, file_format="png"
+        ):
             """
             Creates and optionally saves the heatmap visualization.
 
@@ -421,6 +461,7 @@ class PlotMixin:
                 min_v (int, optional): Minimum value for the heatmap color scale.
                 max_v (int, optional): Maximum value for the heatmap color scale.
                 save (bool): Whether to save the heatmap to a file.
+                file_format (str): Extension of the saved file (already normalized).
 
             Returns:
                 None: Displays the heatmap or saves it to a file.
@@ -558,9 +599,9 @@ class PlotMixin:
                     plt.show()
                 else:
                     if num_heatmaps == 1:
-                        filename = os.path.join(self.saving_directory, f"{title}.png")
+                        filename = os.path.join(self.saving_directory, f"{title}.{file_format}")
                     else:
-                        filename = os.path.join(self.saving_directory, f"{title}_part_{i + 1}.png")
+                        filename = os.path.join(self.saving_directory, f"{title}_part_{i + 1}.{file_format}")
                     plt.savefig(filename)
                     plt.close()
 
@@ -595,6 +636,7 @@ class PlotMixin:
             save=save,
             case=case,
             remove_empty=remove_empty,
+            file_format=file_format,
         )
 
     def bar_chart(
@@ -613,6 +655,7 @@ class PlotMixin:
         subpocket_colors: list[str] = None,
         export_xlsx: bool = False,
         case: str = None,
+        file_format: str = "png",
     ) -> None:
         """
         Generates a bar chart based on interaction data.
@@ -638,7 +681,7 @@ class PlotMixin:
             label_y (str, optional): Label for the y-axis. Defaults to "Number of intermolecular interactions".
             title (str, optional): Title of the chart. Defaults to "Protein-drug interactions".
             stacked (bool, optional): If True, creates a stacked bar chart. Defaults to False.
-            save (bool, optional): If True, saves the chart as a PNG file. If False,
+            save (bool, optional): If True, saves the chart to a file (PNG by default, see `file_format`). If False,
               the function displays an interactive plot. Interactive mode requires a
               GUI backend (e.g., by running %matplotlib qt or %matplotlib tk). Defaults to False.
             colors (list[str], optional): List of colors for interaction types. Defaults to None.
@@ -654,14 +697,18 @@ class PlotMixin:
             export_xlsx (bool, optional): If True, exports the bar-chart data to an Excel file
                using the same base name as `plot_name` (with `.xlsx` extension). Defaults to False.
             case (str, optional): Case style for the plot leyend. Can be 'upper', 'lower', or None. Defaults to None.
+            file_format (str, optional): File extension used when ``save=True`` (e.g. ``"png"``, ``"pdf"``,
+               ``"svg"``). Accepted with or without leading dot. Vector formats like ``"pdf"`` or ``"svg"``
+               keep their quality when enlarged. Defaults to ``"png"``.
 
         Returns:
             None: The function either displays or saves the plot.
 
         Raises:
-            ValueError: If `axis` is not 'rows' or 'columns'.
+            ValueError: If `axis` is not 'rows' or 'columns', or if `file_format` is not supported.
         """
 
+        file_format = self._normalize_file_format(file_format)
         self._verify_case(case=case)
 
         residue_color_map = None
@@ -800,7 +847,7 @@ class PlotMixin:
                 out_name = plot_name
             else:
                 out_name = f"{plot_name}_part{plot_i + 1}"
-            self._plot_end(save, plt, fig, out_name)
+            self._plot_end(save, plt, fig, out_name, file_format)
         # Export data to Excel if requested
         if export_xlsx:
             xlsx_name = f"{plot_name}.xlsx"
@@ -833,13 +880,14 @@ class PlotMixin:
         type_count: bool = False,
         case: str = None,
         export_xlsx: bool = False,
+        file_format: str = "png",
     ) -> None:
         """
         Generates a pie chart based on interaction data.
 
         This method processes an interaction matrix, calculates the proportion of different interaction
         types, and visualizes them as a pie chart. Interaction types with zero occurrences are automatically
-        filtered out. The chart can be displayed or saved as a PNG file.
+        filtered out. The chart can be displayed or saved to a file (PNG by default).
 
         Args:
             interaction_data (InteractionData): The object containing the interaction matrix.
@@ -854,9 +902,15 @@ class PlotMixin:
             case (str, optional): Case style for the plot leyend. Can be 'upper', 'lower', or None. Defaults to None.
             export_xlsx (`bool`, optional): If True, exports the bar-chart data to an Excel file using the same name
                                             defined in `plot_name` (with `.xlsx` extension). Defaults to `False`.
+            file_format (str, optional): File extension used when ``save=True`` (e.g. ``"png"``, ``"pdf"``,
+                                         ``"svg"``). Accepted with or without leading dot. Vector formats like
+                                         ``"pdf"`` or ``"svg"`` keep their quality when enlarged. Defaults to ``"png"``.
 
         Returns:
             None: The function either displays or saves the plot.
+
+        Raises:
+            ValueError: If `file_format` is not supported by Matplotlib.
         """
 
         def _filter_non_zero_interactions(total_interactions: list[int], colors: list[str]) -> list[tuple]:
@@ -927,6 +981,7 @@ class PlotMixin:
                 return zip(*non_zero_interactions)  # Separates into labels, sizes, and colors
             return [], [], []
 
+        file_format = self._normalize_file_format(file_format)
         self._verify_case(case=case)
         self.set_config(interaction_data=interaction_data)
         matrix = interaction_data.matrix
@@ -992,7 +1047,7 @@ class PlotMixin:
                 self._pie_hover_state = {}
             self._pie_hover_state[plot_name] = {"cid": cid, "annot": annot, "fig": fig}
         # Show or save the plot
-        self._plot_end(save, plt, fig, plot_name)
+        self._plot_end(save, plt, fig, plot_name, file_format)
 
         if export_xlsx:
             xlsx_path = os.path.join(self.saving_directory, f"{plot_name}.xlsx")
