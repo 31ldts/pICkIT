@@ -25,6 +25,7 @@ def parse_arpeggio_file(
     ligand: bool,
     subunit: bool,
     amino_acid_codes: list[str],
+    ligand_chain: str | None = None,
 ) -> tuple[list[list[str]], str, dict, int, set]:
     """
     Processes an Arpeggio interaction file's content (no template
@@ -44,11 +45,15 @@ def parse_arpeggio_file(
         subunit (bool): Whether to keep subunits distinct in the residue label.
         amino_acid_codes (list[str]): Standard three-letter amino acid codes,
             passed through to ``get_protein_ligand``.
+        ligand_chain (str | None): Optional chain id (``auth_asym_id``) to treat as
+            the (peptide) ligand, passed through to ``get_protein_ligand``. ``None``
+            keeps the amino-acid-code heuristic.
 
     Returns:
         tuple[list[list[str]], str, dict, int, set]:
             Updated ``(matrix, ligand_code, aa, cont, subunits_set)``.
     """
+    ligand_code = None  # stays None if no record is classified (avoids UnboundLocalError)
     interaction_list = ARPEGGIO_CONT[:2] + ARPEGGIO_TYPE + ARPEGGIO_CONT[2:]
     # interaction_list.sort(key=lambda s: (s.lower(), s.islower()))
 
@@ -66,7 +71,9 @@ def parse_arpeggio_file(
             contact = [inter["type"]]
         else:
             contact = [conta for conta in inter["contact"] if conta in ARPEGGIO_CONT]
-        prot, lig = get_protein_ligand(begin=inter["bgn"], end=inter["end"], amino_acid_codes=amino_acid_codes)
+        prot, lig = get_protein_ligand(
+            begin=inter["bgn"], end=inter["end"], amino_acid_codes=amino_acid_codes, ligand_chain=ligand_chain
+        )
         if prot is not None:
             residue = prot["label_comp_id"] + " " + str(prot["auth_seq_id"])
             prot_atom = prot["auth_atom_id"]
@@ -146,6 +153,7 @@ def parse_arpeggio_file_template(
     ligand: bool,
     subunit: bool,
     amino_acid_codes: list[str],
+    ligand_chain: str | None = None,
 ) -> tuple[list[list[str]], str, dict, int, set]:
     """
     Processes an Arpeggio interaction file's content, restricted to entries
@@ -168,11 +176,15 @@ def parse_arpeggio_file_template(
         subunit (bool): Whether to keep subunits distinct in the residue label.
         amino_acid_codes (list[str]): Standard three-letter amino acid codes,
             passed through to ``get_protein_ligand``.
+        ligand_chain (str | None): Optional chain id (``auth_asym_id``) to treat as
+            the (peptide) ligand, passed through to ``get_protein_ligand``. ``None``
+            keeps the amino-acid-code heuristic.
 
     Returns:
         tuple[list[list[str]], str, dict, int, set]:
             Updated ``(matrix, ligand_code, aa, cont, subunits_set)``.
     """
+    ligand_code = None  # stays None if no record is classified (avoids UnboundLocalError)
     # Filter to obtain entries with the desired contact or type
     for inter in content:
         for entry in template:
@@ -192,7 +204,9 @@ def parse_arpeggio_file_template(
                 else:
                     if inter["contact"] in interaction_list:
                         contact.add(inter["contact"])
-                prot, lig = get_protein_ligand(begin=inter["bgn"], end=inter["end"], amino_acid_codes=amino_acid_codes)
+                prot, lig = get_protein_ligand(
+                    begin=inter["bgn"], end=inter["end"], amino_acid_codes=amino_acid_codes, ligand_chain=ligand_chain
+                )
                 if prot is not None:
                     residue = prot["label_comp_id"] + " " + str(prot["auth_seq_id"])
                     prot_atom = prot["auth_atom_id"]

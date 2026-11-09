@@ -46,7 +46,12 @@ from .constants import (
 from .exceptions import FileOrDirectoryException, InvalidColorException, InvalidModeException
 from .models import InteractionData
 from .parsers.arpeggio import parse_arpeggio_file, parse_arpeggio_file_pdbe_template, parse_arpeggio_file_template
-from .parsers.common import flatten_arpeggio_content, is_raw_arpeggio_record
+from .parsers.common import (
+    flatten_arpeggio_content,
+    is_raw_arpeggio_record,
+    read_ligand_chains,
+    validate_ligand_chain,
+)
 from .parsers.ichem import parse_ichem_file
 
 # Fallback used whenever a "processed"-schema file is analyzed without a
@@ -327,7 +332,10 @@ class IOMixin:
                         next(csvreader)  # Skip header
                     except Exception:
                         raise ValueError(f"The CSV file '{activity_file}' is missing a header.")
-                    for key, value in csvreader:
+                    for row in csvreader:
+                        # Only the first two columns (id, activity) matter here; extra
+                        # optional columns such as ``ligand_chain`` are ignored.
+                        key, value = row[:2]
                         data_dict[key.upper()] = str(round(float(value), 3))
 
                 if not data_dict:
@@ -644,6 +652,18 @@ class IOMixin:
             with open(template_file) as f:
                 interaction_list = json.load(f)
 
+        # Optional per-structure ligand chain (peptide ligands), from the activity CSV's
+        # ``ligand_chain`` column. {} when there is no activity file or no such column.
+        ligand_chains = {}
+        if activity_file is not None and os.path.isfile(activity_file):
+            ligand_chains = read_ligand_chains(activity_file)
+        if ligand_chains and mode == self.ICHEM:
+            self._logger(
+                type=self.WARNING,
+                message="The 'ligand_chain' column of the activity file is only used in arpeggio mode; ignoring it.",
+            )
+        used_ligand_chains = set()
+
         # Filter out hidden files (those starting with a dot) from the list of files
         files = [file for file in files if not any(part.startswith(".") for part in FsPath(file).parts)]
         ligands = [None] * len(files)
@@ -680,9 +700,23 @@ class IOMixin:
                     flat_records = flatten_arpeggio_content(content)
                     schema_is_raw = bool(flat_records) and is_raw_arpeggio_record(flat_records[0][0])
 
+                    pdb_id = file.replace(".json", "").upper()
+                    ligand_chain = ligand_chains.get(pdb_id)
+                    if ligand_chain is not None:
+                        used_ligand_chains.add(pdb_id)
+
                     if schema_is_raw:
                         raw_content = [record for record, _ in flat_records]
-                        if template_file is not None:
+                        if ligand_chain is not None and not validate_ligand_chain(
+                            raw_content,
+                            ligand_chain,
+                            pdb_id,
+                            warn=lambda message: self._logger(type=self.WARNING, message=message),
+                        ):
+                            # Invalid chain (already warned). Keep this file's column, empty,
+                            # so the other columns stay aligned with their labels.
+                            ligand_code = None
+                        elif template_file is not None:
                             matrix, ligand_code, aa, cont, subunits_set = parse_arpeggio_file_template(
                                 content=raw_content,
                                 index=index,
@@ -697,6 +731,7 @@ class IOMixin:
                                 ligand=ligand,
                                 subunit=subunit,
                                 amino_acid_codes=self.aa,
+                                ligand_chain=ligand_chain,
                             )
                         else:
                             matrix, ligand_code, aa, cont, subunits_set = parse_arpeggio_file(
@@ -711,8 +746,14 @@ class IOMixin:
                                 ligand=ligand,
                                 subunit=subunit,
                                 amino_acid_codes=self.aa,
+                                ligand_chain=ligand_chain,
                             )
                     else:
+                        if ligand_chain is not None:
+                            self._logger(
+                                type=self.WARNING,
+                                message=f"[{pdb_id}] 'ligand_chain' is not used for PDBe-schema files; ignoring it.",
+                            )
                         matrix, ligand_code, aa, cont, subunits_set = parse_arpeggio_file_pdbe_template(
                             records=flat_records,
                             index=index,
@@ -727,11 +768,24 @@ class IOMixin:
                             ligand=ligand,
                             subunit=subunit,
                         )
-                    files[index] = file.replace(".json", "").upper()
+                    files[index] = pdb_id
+                    if ligand_code is None:
+                        # No protein-ligand interaction was classified for this file.
+                        ligand_code = "NONE"
+                    elif ligand_chain is not None and schema_is_raw:
+                        # A peptide has no single residue name; use a stable label.
+                        ligand_code = "PEP"
                     ligands[index] = ligand_code
 
             else:
                 failed_files.append(file_path)
+
+        for unused in sorted(set(ligand_chains) - used_ligand_chains):
+            if mode == self.ARPEGGIO:
+                self._logger(
+                    type=self.WARNING,
+                    message=f"[{unused}] has a 'ligand_chain' in the activity file but no matching file was analyzed.",
+                )
 
         if mode == self.ICHEM:
             files = None

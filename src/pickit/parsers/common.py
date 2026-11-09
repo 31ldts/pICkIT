@@ -11,9 +11,12 @@ parameter ``amino_acid_codes`` here to keep that distinction unambiguous
 now that it's no longer implicit via closure.
 """
 
+import csv
 import re
+import warnings
+from collections.abc import Callable
 
-from ..constants import DIFF_DELIM, GROUP_DELIM, SAME_DELIM
+from ..constants import DIFF_DELIM, GROUP_DELIM, LIGAND_CHAIN_COLUMN, SAME_DELIM
 
 
 def modify_cell(
@@ -194,24 +197,55 @@ def flatten_arpeggio_content(content) -> list[tuple[dict, dict | None]]:
     return flat
 
 
-def get_protein_ligand(begin: dict, end: dict, amino_acid_codes: list[str]) -> tuple[dict, dict]:
+def get_protein_ligand(
+    begin: dict,
+    end: dict,
+    amino_acid_codes: list[str],
+    ligand_chain: str | None = None,
+) -> tuple[dict, dict]:
     """
     Determines which of the two interacting atoms (`begin`, `end`) belongs
-    to the protein and which to the ligand, based on ``label_comp_type``
-    ('P' for polymer/protein) and, when both are polymer atoms, whether
-    their residue code is a standard amino acid.
+    to the protein and which to the ligand.
+
+    Two modes:
+
+    - ``ligand_chain is None`` (default, original behavior): based on
+      ``label_comp_type`` ('P' for polymer/protein) and, when both are polymer
+      atoms, whether their residue code is a standard amino acid. This cannot
+      handle peptide ligands (both atoms are 'P' and both residues are amino
+      acids, so the pair is discarded).
+    - ``ligand_chain`` given: the atom whose ``auth_asym_id`` equals
+      ``ligand_chain`` is the ligand and the other one is the protein. This is
+      the way to analyze peptide ligands, and it ignores the amino-acid heuristic.
+      The match is exact (PDB chain ids are case-sensitive, and symmetry-mate
+      chains such as ``"A_2"`` are different chains from ``"A"``).
 
     Args:
         begin (dict): The first interacting atom's Arpeggio record.
         end (dict): The second interacting atom's Arpeggio record.
         amino_acid_codes (list[str]): Standard three-letter amino acid codes
             (``self.aa`` on the analyzer), used to disambiguate when both
-            atoms are polymer atoms.
+            atoms are polymer atoms. Unused when ``ligand_chain`` is given.
+        ligand_chain (str | None): Chain id (author nomenclature,
+            ``auth_asym_id``) of the peptide ligand. Both atoms must be
+            polymer atoms ('P'); pairs inside the ligand chain, pairs that do
+            not touch it, and pairs with waters/ligands/ions are discarded.
 
     Returns:
         tuple[dict, dict]: ``(protein_atom, ligand_atom)``, or ``(None, None)``
         if the pair can't be classified as one protein atom + one ligand atom.
     """
+    if ligand_chain is not None:
+        begin_is_ligand = begin["auth_asym_id"] == ligand_chain
+        end_is_ligand = end["auth_asym_id"] == ligand_chain
+
+        # Intra-ligand (both) or not involving the ligand (neither).
+        if begin_is_ligand == end_is_ligand:
+            return None, None
+        if begin["label_comp_type"] != "P" or end["label_comp_type"] != "P":
+            return None, None
+        return (end, begin) if begin_is_ligand else (begin, end)
+
     if begin["label_comp_type"] == "P" and end["label_comp_type"] == "P":
         if begin["label_comp_id"] in amino_acid_codes and end["label_comp_id"] in amino_acid_codes:
             return None, None
@@ -225,3 +259,82 @@ def get_protein_ligand(begin: dict, end: dict, amino_acid_codes: list[str]) -> t
         return end, begin
     else:
         return None, None
+
+
+def validate_ligand_chain(
+    content: list[dict],
+    ligand_chain: str,
+    pdb_id: str,
+    warn: Callable[[str], None] = warnings.warn,
+) -> bool:
+    """
+    Checks, once per file, that ``ligand_chain`` exists in a raw Arpeggio
+    interaction file and holds polymer atoms. Emits a warning otherwise.
+
+    Meant to be called by ``analyze_files`` before parsing a file (not inside
+    ``get_protein_ligand``, which runs once per record and would warn thousands
+    of times).
+
+    Args:
+        content (list[dict]): Parsed raw-schema Arpeggio records of one file.
+        ligand_chain (str): Chain id requested as the ligand (``auth_asym_id``).
+        pdb_id (str): Structure identifier, only used in the warning text.
+        warn (Callable[[str], None]): How to emit the warning; ``warnings.warn`` by
+            default, ``analyze_files`` passes the library's own logger.
+
+    Returns:
+        bool: True if the chain is usable; False if the caller should skip the file.
+    """
+    chains = set()
+    polymer_chains = set()
+    for record in content:
+        for atom in (record["bgn"], record["end"]):
+            chains.add(atom["auth_asym_id"])
+            if atom["label_comp_type"] == "P":
+                polymer_chains.add(atom["auth_asym_id"])
+
+    if ligand_chain not in chains:
+        warn(
+            f"[{pdb_id}] ligand chain {ligand_chain!r} not found in the interaction file "
+            f"(available chains: {sorted(chains)}). Structure skipped."
+        )
+        return False
+    if ligand_chain not in polymer_chains:
+        warn(
+            f"[{pdb_id}] ligand chain {ligand_chain!r} has no polymer atoms, so it is not a peptide "
+            f"(polymer chains: {sorted(polymer_chains)}). Structure skipped."
+        )
+        return False
+    return True
+
+
+def read_ligand_chains(activity_file: str) -> dict[str, str]:
+    """
+    Reads the optional ``ligand_chain`` column of the activity CSV.
+
+    The first column is the structure id (as in ``analyze_files``' activity
+    lookup, ids are upper-cased so they match the upper-cased file stem). Cells
+    are read as plain text (a chain literally named ``"NA"`` stays ``"NA"``),
+    stripped of whitespace, and empty cells are left out. Chain ids are NOT
+    case-normalized: PDB chain ids are case-sensitive.
+
+    Args:
+        activity_file (str): Path to the activity CSV.
+
+    Returns:
+        dict[str, str]: ``{PDB_ID: ligand_chain}``; empty if the column is absent.
+    """
+    chains = {}
+    with open(activity_file, newline="") as csvfile:
+        reader = csv.reader(csvfile)
+        header = next(reader, None)
+        if header is None:
+            return chains
+        header = [h.strip() for h in header]
+        if LIGAND_CHAIN_COLUMN not in header:
+            return chains
+        position = header.index(LIGAND_CHAIN_COLUMN)
+        for row in reader:
+            if len(row) > position and row[0].strip() and row[position].strip():
+                chains[row[0].strip().upper()] = row[position].strip()
+    return chains
