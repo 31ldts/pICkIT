@@ -139,6 +139,11 @@ AMINO_ACID_CODES = [
 
 
 
+# Optional column of the activity CSV naming, per structure, the chain (author
+# nomenclature, ``auth_asym_id``) to be treated as the ligand. Only needed when
+# the ligand is a peptide; see ``parsers.common.get_protein_ligand``.
+LIGAND_CHAIN_COLUMN = "ligand_chain"
+
 DEFAULT_ARPEGGIO_TEMPLATE_FILE = "template_arpeggio.json"
 DEFAULT_ICHEM_TEMPLATE_FILE = "template_ichem.json"
 

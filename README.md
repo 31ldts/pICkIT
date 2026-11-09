@@ -18,6 +18,7 @@ pICkIT parses these files into a compact, structured interaction matrix and prov
 - [Workflow](#workflow)
 - [Installation](#installation)
 - [Quick start](#quick-start)
+- [Peptide ligands](#peptide-ligands)
 - [Core concepts](#core-concepts)
 - [API overview](#api-overview)
 - [Example: analyzing SARS-CoV-2 Mpro inhibitors](#example-analyzing-sars-cov-2-mpro-inhibitors)
@@ -117,6 +118,25 @@ analyzer.pie_chart(interaction_data=data, plot_name="interaction_types", axis=an
 > **Note:** `analyze_files` restricts interactions to the bundled `template.json` by default. This default template lives inside the installed package itself (`src/pickit/template.json`). If you pass your own `template_file=`, that path is resolved relative to the input directory you set with `change_directory(path, mode=analyzer.INPUT)` — just like `activity_file` and `subpocket_path`.
 
 A full walkthrough of every method, with runnable examples and sample input/output files, is available in [`pICkIT-notebook.ipynb`](./pICkIT-notebook.ipynb) (also runnable directly [in Colab](https://colab.research.google.com/github/31ldts/pICkIT/blob/main/pICkIT-notebook.ipynb)).
+
+## Peptide ligands
+
+By default, pICkIT decides which atom of a contact belongs to the protein and which to the ligand from the residue type: the one that is a standard amino acid is the protein. This does not work when the ligand is a **peptide**, because both sides are amino acids and the contact is discarded.
+
+To analyze peptide–protein complexes, indicate the peptide chain in an **optional `ligand_chain` column** of the activity file:
+
+```csv
+pdb_id,pIC50,ligand_chain
+6x18,7.5,P
+5rgv,4.2,
+7gnf,6.67,
+```
+
+- The value is the chain id in the **authors' nomenclature** (`auth_asym_id`, the one used in the deposited structure, e.g. `P`).
+- It is set **per structure**, since the chain letter may change between complexes.
+- It is **optional**: leave it empty (or omit the column) and that structure is processed as before, so peptide and non-peptide ligands can be mixed in the same directory.
+- Chain ids are **case-sensitive** (`P` ≠ `p`) and must match exactly. Symmetry-mate chains such as `A_2` are different chains from `A`.
+- The structure id must match the interaction file name (`6x18` ↔ `6X18.json`, case-insensitive).
 
 ## Core concepts
 
