@@ -261,6 +261,26 @@ def get_protein_ligand(
         return None, None
 
 
+def peptide_ligand_atom(ligand_atom: dict) -> str:
+    """
+    Builds the ligand-atom label used in a cell when the ligand is a peptide.
+
+    A peptide has many residues sharing atom names (``OG1`` of every THR, ``CA``
+    of every residue...), so the atom name alone does not say which residue makes
+    the contact. This appends the residue name and number (``auth_seq_id``)
+    to the atom name, e.g. ``OG1`` of THR 13 -> ``OG1THR13``. For a multi-atom
+    group (plane records, ``"CD1,CD2,CG"``) the residue is appended once, at the end.
+
+    Args:
+        ligand_atom (dict): The ligand atom's Arpeggio record, as returned by
+            ``get_protein_ligand``.
+
+    Returns:
+        str: ``"{auth_atom_id}{label_comp_id}{auth_seq_id}"``.
+    """
+    return f'{ligand_atom["auth_atom_id"]}{ligand_atom["label_comp_id"]}{ligand_atom["auth_seq_id"]}'
+
+
 def validate_ligand_chain(
     content: list[dict],
     ligand_chain: str,
