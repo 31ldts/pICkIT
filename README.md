@@ -33,6 +33,7 @@ pICkIT parses these files into a compact, structured interaction matrix and prov
 - Parses large Arpeggio JSON interaction files into a single, compact interaction matrix
 - Filters interactions by type, residue, subunit/chain, or binding-site subpocket
 - Integrates ligand activity data (e.g. IC50 / pIC50) to relate interactions to potency
+- Handles peptide ligands, by indicating the ligand chain per structure in the activity file
 - Generates compact summary matrices, exportable to Excel (`.xlsx`)
 - Produces publication-ready heatmaps, bar charts, and pie charts
 - Supports dataset comparison across ligand series and binding subpockets
@@ -137,6 +138,7 @@ pdb_id,pIC50,ligand_chain
 - It is **optional**: leave it empty (or omit the column) and that structure is processed as before, so peptide and non-peptide ligands can be mixed in the same directory.
 - Chain ids are **case-sensitive** (`P` ≠ `p`) and must match exactly. Symmetry-mate chains such as `A_2` are different chains from `A`.
 - The structure id must match the interaction file name (`6x18` ↔ `6X18.json`, case-insensitive).
+- A peptide has many residues sharing atom names, so for peptide ligands the ligand atom is followed by its residue name and number (`auth_seq_id`): `CD-OG1THR13(R)` means the protein atom `CD` contacts the `OG1` atom of `THR 13` of the peptide, with the protein residue in subunit `R`. For multi-atom groups (e.g. aromatic planes) the residue is appended once, at the end of the group.
 
 ## Core concepts
 
