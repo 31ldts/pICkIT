@@ -10,7 +10,7 @@ through closure.
 """
 
 from ..constants import ARPEGGIO_CONT, ARPEGGIO_INT_ENT, ARPEGGIO_TYPE
-from .common import get_protein_ligand, is_raw_arpeggio_record, modify_cell
+from .common import get_protein_ligand, is_raw_arpeggio_record, modify_cell, peptide_ligand_atom
 
 
 def parse_arpeggio_file(
@@ -47,7 +47,8 @@ def parse_arpeggio_file(
             passed through to ``get_protein_ligand``.
         ligand_chain (str | None): Optional chain id (``auth_asym_id``) to treat as
             the (peptide) ligand, passed through to ``get_protein_ligand``. ``None``
-            keeps the amino-acid-code heuristic.
+            keeps the amino-acid-code heuristic and the plain ligand atom names; when
+            given, ligand atoms are labelled ``atom+residue+number``.
 
     Returns:
         tuple[list[list[str]], str, dict, int, set]:
@@ -79,7 +80,7 @@ def parse_arpeggio_file(
             prot_atom = prot["auth_atom_id"]
             prot_subunit = prot["auth_asym_id"]
             ligand_code = lig["label_comp_id"]
-            lig_atom = lig["auth_atom_id"]
+            lig_atom = lig["auth_atom_id"] if ligand_chain is None else peptide_ligand_atom(lig)
 
             subunits_set.add(prot_subunit)
             atoms = (
@@ -178,7 +179,8 @@ def parse_arpeggio_file_template(
             passed through to ``get_protein_ligand``.
         ligand_chain (str | None): Optional chain id (``auth_asym_id``) to treat as
             the (peptide) ligand, passed through to ``get_protein_ligand``. ``None``
-            keeps the amino-acid-code heuristic.
+            keeps the amino-acid-code heuristic and the plain ligand atom names; when
+            given, ligand atoms are labelled ``atom+residue+number``.
 
     Returns:
         tuple[list[list[str]], str, dict, int, set]:
@@ -212,7 +214,7 @@ def parse_arpeggio_file_template(
                     prot_atom = prot["auth_atom_id"]
                     prot_subunit = prot["auth_asym_id"]
                     ligand_code = lig["label_comp_id"]
-                    lig_atom = lig["auth_atom_id"]
+                    lig_atom = lig["auth_atom_id"] if ligand_chain is None else peptide_ligand_atom(lig)
 
                     subunits_set.add(prot_subunit)
                     atoms = (
